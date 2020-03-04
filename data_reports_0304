@@ -1,0 +1,32 @@
+0304 data reports
+
+
+Currently we are actively collect data:
+1. Common Voice
+   https://voice.mozilla.org/en/datasets
+
+   It is an open source dataset that anyone can upload their english speaking clips onto it and someone may label their accent, we can use those part of it.
+   statistics: 11700 us utterances, 4600 uk utterances
+
+2. The Speech Accent Archive
+   http://accent.gmu.edu/browse_language.php?function=find&language=english
+
+   statistics: 420 us utterances, 72 uk utterances, each utterance comes from different speaker
+
+3. Voxceleb1
+   http://www.robots.ox.ac.uk/~vgg/data/voxceleb/vox1.html
+
+   metadata info can be seen in VoxCeleb1.speaker.info in this repo
+   statistics: 806 us speakers, 219 uk speakers, each speaker have multiple utterances
+
+4. Youtube video
+
+   we collect about 100 videos per accent(us/uk), 20 minutes on average each video. Videos are from these list: 
+   TED*NewYork
+   TED*London
+   British English Accent Speech
+   American English Accent Speech
+   youenglish.com
+   Oxford debate
+
+   Their link can be seen in metadata sheet in youtube.xlsx in this repo
