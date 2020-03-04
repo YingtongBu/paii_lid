@@ -1,7 +1,5 @@
-0304 data reports
+Currently we are actively collecting data:
 
-
-Currently we are actively collect data:
 1. Common Voice
    https://voice.mozilla.org/en/datasets
 
@@ -20,13 +18,13 @@ Currently we are actively collect data:
    statistics: 806 us speakers, 219 uk speakers, each speaker have multiple utterances
 
 4. Youtube video
-
-   we collect about 100 videos per accent(us/uk), 20 minutes on average each video. Videos are from these list: 
-   TED*NewYork
-   TED*London
+   we collect about 100 videos per accent(us/uk), 20 minutes on average per video. Videos are from these youtube video list: 
+   TEDxNewYork
+   TEDxLondon
    British English Accent Speech
    American English Accent Speech
    youenglish.com
    Oxford debate
+   NationalArmyMuseumUK
 
    Their link can be seen in metadata sheet in youtube.xlsx in this repo
