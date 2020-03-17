@@ -1,0 +1,190 @@
+
+-------------------------------------------------
+youtube segments data/train
+-------------------------------------------------
+
+--- Prepare data ---
+
+utt2lang
+<utterance-id> <lang>
+VictoriaBeckham-id000-003000-006000 uk
+VictoriaBeckham-id000-003000-006000 uk
+VanessaVanEdwards-ytb0011-045000-048000 us
+
+utt2spk
+VictoriaBeckham-id000-003000-006000 VictoriaBeckham
+VanessaVanEdwards-ytb0011-045000-048000 VanessaVanEdwards
+
+utt2wav(wav.scp)
+<recording-id> <filedir>
+id000 /home/kaldi/comvoc/xxxx.wav
+id001 /home/kaldi/comvoc/oxoo.wav
+Id002 /home/kaldi/bbc/xxxx.wav
+Id003 /home/kaldi/bbc/oxoo.wav
+Id004 /home/kaldi/tedxlondon/xxxx.wav
+Id005 /home/kaldi/tedxnewyork/oxoo.wav
+
+segments
+<utterance-id> <recording-id> <start> <end>
+VictoriaBeckham-id000-003000-006000 id000 30.0 60.0
+VictoriaBeckham-id000-006000-009000 id000 60.0 90.0
+
+其实不用先切割音频：因为不需要每个切割音频的路径
+
+--- Edit files ---
+
+vim local/general_lr_closed_set_langs.txt
+vim conf/mfcc.conf
+vim conf/mfcc_vtln.conf
+--allow-downsample=true
+
+vim cmd.sh
+queue.pl run.pl
+
+*** Fix data ***
+awk '{print $2}' data/train/utt2lang | sort | uniq -c | sort -nr
+2217 us
+2211 uk
+
+
+utils/utt2spk_to_spk2utt.pl data/train/utt2spk > data/train/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07/utt2spk > data/lre07/spk2utt
+
+utils/fix_data_dir.sh data/train
+utils/fix_data_dir.sh data/lre07
+
+Bug:
+"utils/validate_data_dir.sh: utt2spk is not in sorted order when sorted first on speaker-id":
+speaker-id should be a prefix of the utterance-id
+
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in train lre07; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 80 --cmd "$train_cmd" \
+       data/${t}_novtln exp/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+ done
+
+utils/fix_data_dir.sh data/train_novtln
+utils/fix_data_dir.sh data/lre07_novtln
+
+
+utils/subset_data_dir.sh data/train_novtln 4285 data/train_5k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_5k_novtln 256 \
+    exp/diag_ubm_vtln
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+     data/train_5k_novtln exp/diag_ubm_vtln exp/vtln
+
+. ./cmd.sh;
+for t in lre07 train; do
+    lid/get_vtln_warps.sh --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp/vtln exp/${t}_warps
+    cp exp/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train
+utils/filter_scp.pl data/train/utt2warp data/train/utt2spk > data/train/utt2spk_tmp
+cp data/train/utt2spk_tmp data/train/utt2spk
+utils/fix_data_dir.sh data/train
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 80 --cmd "$train_cmd" \
+  data/train exp/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/lre07 exp/make_mfcc $mfccdir
+# number of njobs = number of mfcc file
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train \
+  exp/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07 \
+  exp/make_vad $vaddir
+
+utils/subset_data_dir.sh data/train 1000 data/train_1k
+utils/subset_data_dir.sh data/train 4000 data/train_4k
+
+
+. ./cmd.sh;
+lid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_1k 2048 exp/diag_ubm_2048
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_4k exp/diag_ubm_2048 exp/full_ubm_2048_4k
+
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 35G" \
+  data/train exp/full_ubm_2048_4k exp/full_ubm_2048
+
+
+--- i-vector ---
+
+nohup . ./cmd.sh;
+lid/train_ivector_extractor.sh --cmd "$train_cmd --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp/full_ubm_2048/final.ubm data/train \
+  exp/extractor_2048 > train_ivector.log1 &
+
+Bug:
+ERROR (ivector-extractor-sum-accs[5.5.660~1-6a21b]:ExpectToken():io-funcs.cc:200) Failed to read token [started at file position -1], expected <IvectorExtractorStats>
+
+并行任务开的太多而内存不够大造成的，解决办法就是减小sid/train_ivector_extractor.sh脚本中设置的并行任务数nj。
+这个问题还可能导致以下错误：（ERROR (ivector-extractor-acc-stats[5.2]:ReadBasicType<float>():io-funcs.cc:85) ReadBasicType: expected float, saw -1, at file position -）
+参考：https://groups.google.com/forum/#!msg/kaldi-help/D1rU4EaTmjw/AnCis3BPAgAJ
+
+rm exp/extractor_2048/post.*.gz
+rm exp/extractor_2048/final.ie 2>/dev/null
+ln -s 4.ie final.ie
+
+
+cp -r data/train data/train_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train/utt2lang) \
+  > data/train_lr/utt2lang
+utils/fix_data_dir.sh data/train_lr
+
+awk '{print $2}' data/train_lr/utt2lang | sort | uniq -c | sort -nr
+ 2145 us
+ 2140 uk
+
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 50 \
+   exp/extractor_2048 data/train_lr exp/ivectors_train > extract_ivector.log1 &
+
+Error: No such file exp/extractor_2048/final.ie
+train_ivector last three lines not completed
+
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 30 \
+   exp/extractor_2048 data/lre07 exp/ivectors_lre07 > extract_ivector.log2 &
+
+lid/run_logistic_regression.sh --prior-scale 0.70 \
+  --conf conf/logistic-regression.conf
+
+
+Bug:
+ERROR (compute-wer[5.5.660~1-6a21b]:main():compute-wer.cc:84) No hypothesis for key GeorgeOsborne-ytb0121-312000-315000 and strict mode specifier.
+vim exp/ivectors_lre07/output
+add GeorgeOsborne-ytb0121-312000-315000 uk
+~/kaldi/src/bin/compute-wer --text ark:<(lid/remove_dialect.pl data/lre07/utt2lang) \
+  ark:exp/ivectors_lre07/output
+
+~/kaldi/src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/train_lr/utt2lang) \
+  ark:exp/ivectors_train/output

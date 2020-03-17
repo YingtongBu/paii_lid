@@ -1,0 +1,277 @@
+
+-------------------------------------------------
+all2 9:1
+-------------------------------------------------
+
+
+awk '{print $2}' data/train_all2/utt2lang | sort | uniq -c | sort -nr
+   4206 us
+   3242 uk
+
+utils/utt2spk_to_spk2utt.pl data/train_all2/utt2spk > data/train_all2/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_all2/utt2spk > data/lre07_all2/spk2utt
+
+utils/fix_data_dir.sh data/train_all2
+utils/fix_data_dir.sh data/lre07_all2
+7448 / 761
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in train_all2 lre07_all2; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_5/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+ done
+
+utils/fix_data_dir.sh data/train_all2_novtln
+utils/fix_data_dir.sh data/lre07_all2_novtln
+7446 / 761
+
+utils/subset_data_dir.sh data/train_all2_novtln 4000 data/train_all2_4k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_all2_4k_novtln 256 \
+    exp_5/diag_ubm_vtln
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+     data/train_all2_4k_novtln exp_5/diag_ubm_vtln exp_5/vtln
+
+. ./cmd.sh;
+for t in lre07_all2 train_all2; do
+    lid/get_vtln_warps.sh --nj 30 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/vtln exp_5/${t}_warps
+    cp exp_5/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_all2
+utils/filter_scp.pl data/train_all2/utt2warp data/train_all2/utt2spk > data/train_all2/utt2spk_tmp
+cp data/train_all2/utt2spk_tmp data/train_all2/utt2spk
+utils/fix_data_dir.sh data/train_all2
+7421
+
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/train_all2 exp_5/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/lre07_all2 exp_5/make_mfcc $mfccdir
+
+Bug:
+utils/validate_data_dir.sh: Error: in data/lre07_all2, utterance lists extracted from utt2spk and utt2warp
+utils/validate_data_dir.sh: differ, partial diff is:
+--- /tmp/kaldi.14pe/utts        2020-03-10 11:56:00.278360102 -0700
++++ /tmp/kaldi.14pe/utts.utt2warp       2020-03-10 11:56:00.274360083 -0700
+@@ -204,3 +204,2 @@
+ EE191007094986215-itg1224
+-EE191007097923036-itg1220
+ EE191007108879607-itg1214
+...
+[Lengths are /tmp/kaldi.14pe/utts=761 versus /tmp/kaldi.14pe/utts.utt2warp=759]
+
+solve:
+before mfcc
+utils/fix_data_dir.sh data/lre07_all2
+utils/filter_scp.pl data/lre07_all2/utt2warp data/lre07_all2/utt2spk > data/lre07_all2/utt2spk_tmp
+cp data/lre07_all2/utt2spk_tmp data/lre07_all2/utt2spk
+utils/fix_data_dir.sh data/lre07_all2
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_all2 \
+  exp_5/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_all2 \
+  exp_5/make_vad $vaddir
+
+--- ubm ---
+
+utils/subset_data_dir.sh data/train_all2 1000 data/train_all2_1k
+utils/subset_data_dir.sh data/train_all2 4000 data/train_all2_4k
+
+
+. ./cmd.sh;
+lid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_all2_1k 2048 exp_5/diag_ubm_2048
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_all2_4k exp_5/diag_ubm_2048 exp_5/full_ubm_2048_4k
+
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 35G" \
+  data/train_all2 exp_5/full_ubm_2048_4k exp_5/full_ubm_2048
+
+
+--- i-vector ---
+
+nohup . ./cmd.sh;
+lid/train_ivector_extractor.sh --cmd "$train_cmd --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_5/full_ubm_2048/final.ubm data/train_all2 \
+  exp_5/extractor_2048 > train_ivector.log5 &
+
+
+cp -r data/train_all2 data/train_all2_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_all2/utt2lang) \
+  > data/train_all2_lr/utt2lang
+utils/fix_data_dir.sh data/train_all2_lr
+7421
+
+awk '{print $2}' data/train_all2_lr/utt2lang | sort | uniq -c | sort -nr
+   4187 us
+   3234 uk
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 50 \
+   exp_5/extractor_2048 data/train_all2_lr exp_5/ivectors_train_all2 > extract_ivector.log1 &
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 30 \
+   exp_5/extractor_2048 data/lre07_all2 exp_5/ivectors_lre07_all2 > extract_ivector.log2 &
+
+
+
+cp lid/run_logistic_regression.sh lid/run_logistic_regression_5.sh
+vim lid/run_logistic_regression_5.sh $data_dir $exp_dir
+
+lid/run_logistic_regression_5.sh --prior-scale 0.70 \
+  --conf conf/logistic-regression.conf
+
+-------------------------------------------------
+test on itg test set
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/lre07_itg_for_all/utt2spk > data/lre07_itg_for_all/spk2utt
+utils/fix_data_dir.sh data/lre07_itg_for_all
+251
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in lre07_itg_for_all; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 10 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_5/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+ done
+
+utils/fix_data_dir.sh data/lre07_itg_for_all_novtln
+
+
+
+. ./cmd.sh;
+for t in lre07_itg_for_all; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/vtln exp_5/${t}_warps
+    cp exp_5/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/lre07_itg_for_all
+utils/filter_scp.pl data/lre07_itg_for_all/utt2warp data/lre07_itg_for_all/utt2spk > data/lre07_itg_for_all/utt2spk_tmp
+cp data/lre07_itg_for_all/utt2spk_tmp data/lre07_itg_for_all/utt2spk
+utils/fix_data_dir.sh data/
+250
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/lre07_itg_for_all exp_5/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_itg_for_all \
+  exp_5/make_vad $vaddir
+
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 20 \
+   exp_5/extractor_2048 data/lre07_itg_for_all exp_5/ivectors_lre07_itg_for_all > extract_ivector.log3 &
+
+
+cp lid/run_logistic_regression_5.sh lid/run_logistic_regression_8.sh
+vim lid/run_logistic_regression_8.sh $data_dir $exp_dir
+
+
+lid/run_logistic_regression_8.sh --prior-scale 0.70 \
+  --conf conf/logistic-regression.conf
+
+
+
+-------------------------------------------------
+test on youtube test set
+-------------------------------------------------
+utils/utt2spk_to_spk2utt.pl data/lre07_youtube_for_all/utt2spk > data/lre07_youtube_for_all/spk2utt
+utils/fix_data_dir.sh data/lre07_youtube_for_all
+510
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in lre07_youtube_for_all; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 80 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_5/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+ done
+
+utils/fix_data_dir.sh data/lre07_youtube_for_all_novtln
+
+
+
+. ./cmd.sh;
+for t in lre07_youtube_for_all; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/vtln exp_5/${t}_warps
+    cp exp_5/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/lre07_youtube_for_all
+utils/filter_scp.pl data/lre07_youtube_for_all/utt2warp data/lre07_youtube_for_all/utt2spk > data/lre07_youtube_for_all/utt2spk_tmp
+cp data/lre07_youtube_for_all/utt2spk_tmp data/lre07_youtube_for_all/utt2spk
+utils/fix_data_dir.sh data/lre07_youtube_for_all
+509
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/lre07_youtube_for_all exp_5/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_youtube_for_all \
+  exp_5/make_vad $vaddir
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 8 \
+   exp_5/extractor_2048 data/lre07_youtube_for_all exp_5/ivectors_lre07_youtube_for_all > extract_ivector.log4 &
+
+
+cp lid/run_logistic_regression_5.sh lid/run_logistic_regression_9.sh
+vim lid/run_logistic_regression_9.sh $data_dir $exp_dir
+
+lid/run_logistic_regression_9.sh --prior-scale 0.70 \
+  --conf conf/logistic-regression.conf
+
