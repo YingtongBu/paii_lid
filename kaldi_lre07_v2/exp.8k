@@ -1,0 +1,25 @@
+8kz asr
+
+--- asr part ---
+vim train_dnn.sh
+train_all_asr -> train_asr
+exp -> exp.8k
+
+vim cmd.sh
+run.pl
+
+vim path.sh
+add $KALDI_ROOT/src/nnet3bin:
+
+ln -s conf.8k conf
+
+ln -s /data/pytong/lre07_v2_exps/exp
+
+vim local/dnn/run_nnet2_multisplice.sh 里面涉及的script都需要检查dir
+vim local/dnn/run_nnet2_common.sh
+
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 nohup local/dnn/run_nnet2_multisplice.sh > dnn.8k.log &
+
+nohup ./local/dnn/run_nnet2_multisplice.sh > dnn.8k.log &
+

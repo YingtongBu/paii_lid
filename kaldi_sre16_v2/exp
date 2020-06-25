@@ -1,0 +1,217 @@
+. ./cmd.sh
+. ./path.sh
+mfccdir=`pwd`/mfcc
+vaddir=`pwd`/mfcc
+
+nnet_dir=exp/xvector_nnet_1a
+
+vim conf/mfcc.conf
+conf=16khz
+
+https://groups.google.com/forum/#!topic/kaldi-help/JksAYC4YiNQ:
+if you want to use this for LID, you'll need to modify get_egs.sh and allocate_egs.py so that that the training labels are obtained from utt2lang rather than utt2spk.
+
+mfccdir=`pwd`/mfcc;
+if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $mfccdir/storage ]; then
+  utils/create_split_dir.pl \
+  /export/b{14,15,16,17}/$USER/kaldi-data/egs/sre16/v2/xvector-$(date +'%m_%d_%H_%M')/mfccs/storage $mfccdir/storage
+fi
+
+for name in train_youtube test_youtube; do
+    utils/utt2spk_to_spk2utt.pl data/${name}/utt2spk > data/${name}/spk2utt
+    utils/fix_data_dir.sh data/${name}
+  done
+
+. ./cmd.sh;
+for name in train_youtube test_youtube; do
+    steps/make_mfcc.sh --write-utt2num-frames true --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+      data/${name} exp/make_mfcc $mfccdir
+    utils/fix_data_dir.sh data/${name}
+    sid/compute_vad_decision.sh --nj 40 --cmd "$train_cmd" \
+      data/${name} exp/make_vad $vaddir
+    utils/fix_data_dir.sh data/${name}
+  done
+
+frame_shift=0.01;
+awk -v frame_shift=$frame_shift '{print $1, $2*frame_shift;}' data/train_youtube/utt2num_frames > data/train_youtube/reco2dur
+
+
+ # Make a reverberated version of the SWBD+SRE list.  Note that we don't add any additive noise here.
+rvb_opts=();
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/smallroom/rir_list");
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/mediumroom/rir_list");
+steps/data/reverberate_data_dir.py \
+	"${rvb_opts[@]}" \
+	--speech-rvb-probability 1 \
+	--pointsource-noise-addition-probability 0 \
+	--isotropic-noise-addition-probability 0 \
+	--num-replications 1 \
+	--source-sampling-rate 16000 \
+	data/train_youtube data/train_youtube_reverb
+
+Number of RIRs is 40000
+
+bug:
+KeyError
+data/train_youtube/utt2num_frames和data/train_youtube/reco2dur的key不一致
+是由于上一步的awk中的print 1而不是print $1
+
+cp data/train_youtube/vad.scp data/train_youtube_reverb/
+utils/copy_data_dir.sh --utt-suffix "-reverb" data/train_youtube_reverb data/train_youtube_reverb.new
+rm -rf data/train_youtube_reverb
+mv data/train_youtube_reverb.new data/train_youtube_reverb
+
+
+# Augment with musan
+steps/data/make_musan.sh --sampling-rate 16000 /data/pytong/wav/musan data
+for name in speech noise music; do
+    utils/data/get_utt2dur.sh data/musan_${name}
+    mv data/musan_${name}/utt2dur data/musan_${name}/reco2dur
+  done
+
+steps/data/augment_data_dir.py --utt-suffix "noise" --fg-interval 1 --fg-snrs "15:10:5:0" --fg-noise-dir "data/musan_noise" data/train_youtube data/train_youtube_noise
+
+steps/data/augment_data_dir.py --utt-suffix "music" --bg-snrs "15:10:8:5" --num-bg-noises "1" --bg-noise-dir "data/musan_music" data/train_youtube data/train_youtube_music
+
+steps/data/augment_data_dir.py --utt-suffix "babble" --bg-snrs "20:17:15:13" --num-bg-noises "3:4:5:6:7" --bg-noise-dir "data/musan_speech" data/train_youtube data/train_youtube_babble
+
+
+# Combine reverb, noise, music, and babble into one directory.
+utils/combine_data.sh data/train_youtube_aug data/train_youtube_reverb data/train_youtube_noise data/train_youtube_music data/train_youtube_babble
+
+
+utils/subset_data_dir.sh data/train_youtube_aug 12000 data/train_youtube_aug_12k
+utils/fix_data_dir.sh data/train_youtube_aug_12k
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/train_youtube_aug_12k exp/make_mfcc $mfccdir
+
+bug:
+WARNING (wav-reverberate[5.5.669~2-b1d80]:Close():kaldi-io.cc:515) Pipe sox RIRS_NOISES/simulated_rirs/smallroom/Room149/Room149-00092.wav -r 16000 -t wav - | had nonzero return status 32512
+ASSERTION_FAILED (wav-reverberate[5.5.669~2-b1d80]:main():wav-reverberate.cc:268) Assertion failed: (rir_channel < num_rir_channel)
+
+mv /data/pytong/wav/RIRS_NOISES .
+尝试换rirnoises sampling rate为8000，不行
+安装sox + mv /data/pytong/wav/RIRS_NOISES . ok
+
+
+utils/combine_data.sh data/train_youtube_combined data/train_youtube_aug_12k data/train_youtube
+没有combine utt2lang，这里需要自己创建utt2lang作为后面的label：从utt2spk中读取spk，再将spk对应的lang给到utt
+def utt2lang(utt2lang, utt2spk):
+  spk2lang = {}
+  with open(utt2lang, 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      spk = utt.split('-')[0]
+      lang = item[1]
+      spk2lang[spk] = lang
+  utt2lang = []
+  with open(utt2spk, 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      spk = item[1]
+      lang = spk2lang[spk]
+      utt2lang.append(utt + ' ' + lang + '\n')
+  with open('utt2lang', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+utils/utt2spk_to_spk2utt.pl data/train_youtube_combined/utt2spk > data/train_youtube_combined/spk2utt
+
+unsolved: 其他没有combine的文件需要吗？
+
+
+utils/utt2spk_to_spk2utt.pl data/train_youtube_combined/utt2lang > data/train_youtube_combined/lang2utt
+utils/fix_data_dir.sh data/train_youtube_combined
+5189
+
+--- xvector ---
+
+
+. ./cmd.sh;
+local/nnet3/xvector/prepare_feats_for_egs.sh --nj 4 --cmd "$train_cmd" \
+    data/train_youtube_combined data/train_youtube_combined_no_sil exp/train_youtube_combined_no_sil
+utils/fix_data_dir.sh data/train_youtube_combined_no_sil
+
+
+utils/fix_data_dir.sh: file data/train_youtube_combined_no_sil/utt2spk is not in sorted order or not unique, sorting it
+utils/fix_data_dir.sh: file data/train_youtube_combined_no_sil/spk2utt is not in sorted order or not unique, sorting it
+- data/train_youtube_combined_no_sil/utt2spk differ: char 36691, line 808
+utt2spk is not in sorted order (fix this yourself)
+
+unsolved：单纯将utt2lang改成utt2spk可行吗？
+
+cp local/nnet3/xvector/prepare_feats_for_egs.sh local/nnet3/xvector/prepare_feats_for_egs.sh.bak
+vim local/nnet3/xvector/prepare_feats_for_egs.sh
+utt2spk modified to utt2lang
+
+. ./cmd.sh;
+CUDA_VISIBLE_DEVICES=1,2,3,4 local/nnet3/xvector/prepare_feats_for_egs.sh --nj 4 --cmd "$train_cmd" \
+    data/train_youtube_combined data/train_youtube_combined_no_sil exp/train_youtube_combined_no_sil
+utils/fix_data_dir.sh data/train_youtube_combined_no_sil
+
+
+mv data/train_youtube_combined_no_sil/utt2num_frames data/train_youtube_combined_no_sil/utt2num_frames.bak
+
+min_len=500;
+awk -v min_len=${min_len} '{print $1, $2}' data/train_youtube_combined_no_sil/utt2num_frames.bak > data/train_youtube_combined_no_sil/utt2num_frames
+
+utils/filter_scp.pl data/train_youtube_combined_no_sil/utt2num_frames data/train_youtube_combined_no_sil/utt2spk > data/train_youtube_combined_no_sil/utt2spk.new
+mv data/train_youtube_combined_no_sil/utt2spk.new data/train_youtube_combined_no_sil/utt2spk
+utils/fix_data_dir.sh data/train_youtube_combined_no_sil
+
+utils/fix_data_dir.sh: file data/train_youtube_combined_no_sil/utt2spk is not in sorted order or not unique, sorting it
+utils/fix_data_dir.sh: file data/train_youtube_combined_no_sil/spk2utt is not in sorted order or not unique, sorting it
+- data/train_youtube_combined_no_sil/utt2spk differ: char 36691, line 808
+utt2spk is not in sorted order (fix this yourself)
+
+
+
+
+awk '{print $1, NF-1}' data/train_youtube_combined_no_sil/spk2utt > data/train_youtube_combined_no_sil/spk2num
+
+min_num_utts=8;
+awk -v min_num_utts=${min_num_utts} '{print $1, $2}' data/train_youtube_combined_no_sil/spk2num | utils/filter_scp.pl - data/train_youtube_combined_no_sil/spk2utt > data/train_youtube_combined_no_sil/spk2utt.new
+
+mv data/train_youtube_combined_no_sil/spk2utt.new data/train_youtube_combined_no_sil/spk2utt
+utils/spk2utt_to_utt2spk.pl data/train_youtube_combined_no_sil/spk2utt > data/train_youtube_combined_no_sil/utt2spk
+
+utils/filter_scp.pl data/train_youtube_combined_no_sil/utt2spk data/train_youtube_combined_no_sil/utt2num_frames > data/train_youtube_combined_no_sil/utt2num_frames.new
+mv data/train_youtube_combined_no_sil/utt2num_frames.new data/train_youtube_combined_no_sil/utt2num_frames
+
+utils/fix_data_dir.sh data/train_youtube_combined_no_sil
+
+utils/fix_data_dir.sh: file data/train_youtube_combined_no_sil/utt2spk is not in sorted order or not unique, sorting it
+utils/fix_data_dir.sh: file data/train_youtube_combined_no_sil/spk2utt is not in sorted order or not unique, sorting it
+- data/train_youtube_combined_no_sil/utt2spk differ: char 36691, line 808
+utt2spk is not in sorted order (fix this yourself)
+
+nnet_dir=exp/xvector_nnet_1a;
+CUDA_VISIBLE_DEVICES=2,3 local/nnet3/xvector/run_xvector.sh --stage 0 --train-stage -1 \
+  --data data/train_youtube_combined_no_sil --nnet-dir $nnet_dir \
+  --egs-dir $nnet_dir/egs
+
+
+???
+2020-04-14 22:19:06,716 [steps/nnet3/train_raw_dnn.py:316 - train - INFO ] Preparing the initial network.
+2020-04-14 22:19:07,065 [steps/nnet3/train_raw_dnn.py:354 - train - INFO ] Training will run for 3.0 epochs = 3 iterations
+2020-04-14 22:19:07,065 [steps/nnet3/train_raw_dnn.py:391 - train - INFO ] Iter: 0/2   Jobs: 2   Epoch: 0.00/3.0 (0.0% complete)   lr: 0.002000   shrink: 0.98000
+2020-04-14 22:19:23,096 [steps/nnet3/train_raw_dnn.py:391 - train - INFO ] Iter: 1/2   Jobs: 2   Epoch: 1.00/3.0 (33.3% complete)   lr: 0.000928   shrink: 0.99072
+2020-04-14 22:19:40,920 [steps/nnet3/train_raw_dnn.py:391 - train - INFO ] Iter: 2/2   Jobs: 2   Epoch: 2.00/3.0 (66.7% complete)   lr: 0.000200   shrink: 0.99800
+2020-04-14 22:19:56,375 [steps/nnet3/train_raw_dnn.py:443 - train - INFO ] Doing final combination to produce final.raw
+2020-04-14 22:19:56,375 [steps/libs/nnet3/train/frame_level_objf/common.py:491 - combine_models - INFO ] Combining set([3]) models.
+2020-04-14 22:20:09,117 [steps/nnet3/train_raw_dnn.py:465 - train - INFO ] Cleaning up the experiment directory exp/xvector_nnet_1a
+exp/xvector_nnet_1a: num-iters=3 nj=2..2 num-params=4.5M dim=23->2 combine=-0.77->-0.77 (over 1) loglike:train/valid[1,2]=(-0.71,-0.71/-0.70,-0.65) accuracy:train/valid[1,2]=(0.67,0.67/0.50,0.50)
+
+
+. ./cmd.sh;
+nnet_dir=exp/xvector_nnet_1a;
+sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 12G" --nj 2 \
+    $nnet_dir data/train_youtube_combined \
+    exp/xvectors_train_youtube_combined
+
+无法combine x-vector through speakers: Computed mean of 0 speakers (0 with no utterances), consisting of 0 utterances (0 absent from input)

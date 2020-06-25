@@ -1,0 +1,98 @@
+cd /data/pytong/kaldi/egs/lre07/v2/data/train_filtered_nn
+
+def uk_nn():
+  utt2lang = []
+  with open('utt2lang', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      if lang == 'us':
+        lang = 'nn'
+      utt2lang.append(utt + ' ' + lang + '\n')
+  with open(f'utt2lang.uknn', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+vim local/general_lr_closed_set_langs.txt
+us 0
+nn 1
+
+cd data/train_filtered_subset_lr
+rm utt2lang
+ln -s utt2lang.usnn utt2lang
+cd ../..
+
+cd data/lre07_itg_filtered
+rm utt2lang
+ln -s utt2lang.usnn utt2lang
+cd ../..
+
+lid/run_logistic_regression_edit.sh train_filtered_subset lre07_itg_filtered exp_7
+18%
+
+cp exp_7/ivectors_lre07_itg_filtered/output output.usnn
+
+vim local/general_lr_closed_set_langs.txt
+uk 0
+nn 1
+
+cd data/train_filtered_subset_lr
+rm utt2lang
+ln -s utt2lang.uknn utt2lang
+cd ../..
+
+cd data/lre07_itg_filtered
+rm utt2lang
+ln -s utt2lang.uknn utt2lang
+cd ../..
+
+lid/run_logistic_regression_edit.sh train_filtered_subset lre07_itg_filtered exp_7
+6.5%
+
+cp exp_7/ivectors_lre07_itg_filtered/output output.uknn
+
+
+def usnn_uknn():
+  utt2lang = []
+  usnn = {}
+  uknn = {}
+  with open('output.usnn', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      usnn[utt] = lang
+  with open('output.uknn', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      uknn[utt] = lang
+  keys = list(uknn.keys())
+  for key in keys:
+    if usnn[key] == uknn[key] == 'nn':
+      lang = 'nn'
+    elif usnn[key] == 'us' and uknn[key] == 'nn':
+      lang = 'us'
+    elif usnn[key] == 'nn' and uknn[key] == 'uk':
+      lang = 'uk'
+    elif usnn[key] == 'us' and uknn[key] == 'uk':
+      lang = 'tbd'
+    utt2lang.append(key + ' ' + lang + '\n')
+  with open('output.9', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+
+usnn_uknn()
+
+output.9竟然没有tbd！
+
+
+/data/pytong/kaldi/src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/lre07_itg_filtered/utt2lang.nn) \
+  ark:output.9
+
+/data/pytong/kaldi/src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/lre07_itg_filtered/utt2lang.usnn) \
+  ark:output.usnn
+
+/data/pytong/kaldi/src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/lre07_itg_filtered/utt2lang.uknn) \
+  ark:output.uknn

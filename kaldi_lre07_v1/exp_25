@@ -1,0 +1,245 @@
+
+-------------------------------------------------
+train_0530_relabel0604
+-------------------------------------------------
+
+--- Edit files ---
+
+vim local/general_lr_closed_set_langs.txt
+vim conf/mfcc.conf
+vim conf/mfcc_vtln.conf
+--allow-downsample=true
+
+vim cmd.sh
+queue.pl run.pl
+
+*** Fix data ***
+awk '{print $2}' data/train_0530_relabel0604/utt2lang | sort | uniq -c | sort -nr
+   1471 us
+    587 nnl
+    541 nnm
+    536 nnn
+    520 uk
+    271 nnh
+     18 nn
+
+
+utils/utt2spk_to_spk2utt.pl data/train_0530_relabel0604/utt2spk > data/train_0530_relabel0604/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_0530_relabel0604/utt2spk > data/lre07_0530_relabel0604/spk2utt
+
+utils/fix_data_dir.sh data/train_0530_relabel0604
+utils/fix_data_dir.sh data/lre07_0530_relabel0604
+3944
+451
+
+--- VTLN ---
+
+. ./cmd.sh;
+for t in train_0530_relabel0604 lre07_0530_relabel0604; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 12 --cmd "$train_cmd" \
+       data/${t}_novtln exp_25/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_25/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/train_0530_relabel0604_novtln
+utils/fix_data_dir.sh data/lre07_0530_relabel0604_novtln
+
+utils/subset_data_dir.sh data/train_0530_relabel0604_novtln 3000 data/train_0530_relabel0604_3k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_0530_relabel0604_3k_novtln 256 \
+    exp_25/diag_ubm_vtln
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+     data/train_0530_relabel0604_3k_novtln exp_25/diag_ubm_vtln exp_25/vtln
+
+. ./cmd.sh;
+for t in lre07_0530_relabel0604 train_0530_relabel0604; do
+    lid/get_vtln_warps.sh --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp_25/vtln exp_25/${t}_warps
+    cp exp_25/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_0530_relabel0604
+utils/filter_scp.pl data/train_0530_relabel0604/utt2warp data/train_0530_relabel0604/utt2spk > data/train_0530_relabel0604/utt2spk_tmp
+cp data/train_0530_relabel0604/utt2spk_tmp data/train_0530_relabel0604/utt2spk
+utils/fix_data_dir.sh data/train_0530_relabel0604
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 80 --cmd "$train_cmd" \
+  data/train_0530_relabel0604 exp_25/make_mfcc $mfccdir
+
+
+utils/fix_data_dir.sh data/lre07_0530_relabel0604
+utils/filter_scp.pl data/lre07_0530_relabel0604/utt2warp data/lre07_0530_relabel0604/utt2spk > data/lre07_0530_relabel0604/utt2spk_tmp
+cp data/lre07_0530_relabel0604/utt2spk_tmp data/lre07_0530_relabel0604/utt2spk
+utils/fix_data_dir.sh data/lre07_0530_relabel0604
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/lre07_0530_relabel0604 exp_25/make_mfcc $mfccdir
+# number of njobs = number of mfcc file
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_0530_relabel0604 \
+  exp_25/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_0530_relabel0604 \
+  exp_25/make_vad $vaddir
+
+utils/subset_data_dir.sh data/train_0530_relabel0604 1000 data/train_0530_relabel0604_1k
+utils/subset_data_dir.sh data/train_0530_relabel0604 3000 data/train_0530_relabel0604_3k
+
+
+. ./cmd.sh;
+lid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_0530_relabel0604_1k 2048 exp_25/diag_ubm_2048
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_0530_relabel0604_3k exp_25/diag_ubm_2048 exp_25/full_ubm_2048_3k
+
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 35G" \
+  data/train_0530_relabel0604 exp_25/full_ubm_2048_3k exp_25/full_ubm_2048
+
+
+--- i-vector ---
+
+nohup lid/train_ivector_extractor.sh --cmd "run.pl --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_23/full_ubm_2048/final.ubm data/train_0530_relabel0604 \
+  exp_25/extractor_2048 >> train_0530_relabel0604_ivector.log25 &
+
+
+cp -r data/train_0530_relabel0604 data/train_0530_relabel0604_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_0530_relabel0604/utt2lang) \
+  > data/train_0530_relabel0604_lr/utt2lang
+utils/fix_data_dir.sh data/train_0530_relabel0604_lr
+
+awk '{print $2}' data/train_0530_relabel0604_lr/utt2lang | sort | uniq -c | sort -nr
+   3114 ok
+    830 nn
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_25/extractor_2048 data/train_0530_relabel0604_lr exp_25/ivectors_train_0530_relabel0604 > extract_ivector.log1 &
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 3 \
+   exp_25/extractor_2048 data/lre07_0530_relabel0604 exp_25/ivectors_lre07_0530_relabel0604 > extract_ivector.log2 &
+
+lid/run_logistic_regression.sh --prior-scale 0.70 \
+  --conf conf/logistic-regression.conf
+
+lid/run_logistic_regression_edit.sh train_0530_relabel0604 lre07_0530_relabel0604 exp_25
+
+
+
+-------------------------------------------------
+test on data_0603
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/data_0603/utt2spk > data/data_0603/spk2utt
+utils/fix_data_dir.sh data/data_0603
+705
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in data_0603; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_25/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_25/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/data_0603_novtln
+706
+
+. ./cmd.sh;
+for t in data_0603; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_25/vtln exp_25/${t}_warps
+    cp exp_25/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/data_0603
+utils/filter_scp.pl data/data_0603/utt2warp data/data_0603/utt2spk > data/data_0603/utt2spk_tmp
+cp data/data_0603/utt2spk_tmp data/data_0603/utt2spk
+utils/fix_data_dir.sh data/data_0603
+705
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/data_0603 exp_25/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/data_0603 \
+  exp_25/make_vad $vaddir
+
+
+. ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 8 \
+   exp_25/extractor_2048 data/data_0603 exp_25/ivectors_data_0603
+
+
+lid/run_logistic_regression_edit.sh train_0530_relabel0604.nnl data_0603 exp_25
+
+
+
+-------------------------------------------------
+train lr with no nnl class
+-------------------------------------------------
+
+cp -r data/train_0530_relabel0604 data/train_0530_relabel0604_lr.2
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_0530_relabel0604/utt2lang) \
+  > data/train_0530_relabel0604_lr.2/utt2lang
+utils/fix_data_dir.sh data/train_0530_relabel0604_lr.2
+3357
+
+awk '{print $2}' data/train_0530_relabel0604_lr.2/utt2lang | sort | uniq -c | sort -nr
+   2527 ok
+    830 nn
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_25/extractor_2048 data/train_0530_relabel0604_lr.2 exp_25/ivectors_train_0530_relabel0604.nnl > extract_ivector.log1 &
+
+lid/run_logistic_regression_edit.sh train_0530_relabel0604.nnl lre07_0530_relabel0604 exp_25
+
+
+
+-------------------------------------------------
+拿出用四类train和test的ivectors做马式距离
+-------------------------------------------------
+for ((i=1;i<=5;i++)); do
+  ../../../src/bin/copy-vector ark:exp_25/ivectors_train_0530_relabel0604.nnl/ivector.$i.ark  ark,t:ivectors.25.nnl/ivector_train.$i.txt
+done
+
+for ((i=1;i<=3;i++)); do
+  ../../../src/bin/copy-vector ark:exp_25/ivectors_lre07_0530_relabel0604/ivector.$i.ark  ark,t:ivectors.25.nnl/ivector_lre07.$i.txt
+done
+
+for ((i=1;i<=8;i++)); do
+  ../../../src/bin/copy-vector ark:exp_25/ivectors_data_0603/ivector.$i.ark  ark,t:ivectors.25.nnl/ivector_0603.$i.txt
+done
+
+取utterance，并对应utt2lang，为四类的留下
+得到utt 600dimension 类别
+每个类别随机取50个，算mean；随机50次；得到各个类别中心
+再计算所有ivector与其类别中心的距离，取10%

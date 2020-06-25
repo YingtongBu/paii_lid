@@ -1,0 +1,52 @@
+exp_20
+
+cp -r exp_7 exp_20
+
+rvb_opts=();
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/smallroom/rir_list");
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/mediumroom/rir_list");
+steps/data/reverberate_data_dir.py \
+	"${rvb_opts[@]}" \
+	--speech-rvb-probability 1 \
+	--pointsource-noise-addition-probability 0 \
+	--isotropic-noise-addition-probability 0 \
+	--num-replications 1 \
+	--source-sampling-rate 8000 \
+	data/train_all3 data/train_all3_reverb
+
+
+
+cp data/train_all3/vad.scp data/train_all3_reverb/
+utils/copy_data_dir.sh --utt-suffix "-reverb" data/train_all3_reverb data/train_all3_reverb.new
+rm -rf data/train_all3_reverb
+mv data/train_all3_reverb.new data/train_all3_reverb
+
+
+# Augment with musan
+steps/data/make_musan.sh --sampling-rate 8000 /data/pytong/wav/musan data
+for name in speech noise music; do
+    utils/data/get_utt2dur.sh data/musan_${name}
+    mv data/musan_${name}/utt2dur data/musan_${name}/reco2dur
+  done
+
+steps/data/augment_data_dir.py --utt-suffix "noise" --fg-interval 1 --fg-snrs "15:10:5:0" --fg-noise-dir "data/musan_noise" data/train_all3 data/train_all3_noise
+
+steps/data/augment_data_dir.py --utt-suffix "music" --bg-snrs "15:10:8:5" --num-bg-noises "1" --bg-noise-dir "data/musan_music" data/train_all3 data/train_all3_music
+
+steps/data/augment_data_dir.py --utt-suffix "babble" --bg-snrs "20:17:15:13" --num-bg-noises "3:4:5:6:7" --bg-noise-dir "data/musan_speech" data/train_all3 data/train_all3_babble
+
+
+# Combine reverb, noise, music, and babble into one directory.
+utils/combine_data.sh data/train_all3_aug data/train_all3_reverb data/train_all3_noise data/train_all3_music data/train_all3_babble
+
+
+utils/subset_data_dir.sh data/train_all3_aug 24000 data/train_all3_aug_24k
+utils/fix_data_dir.sh data/train_all3_aug_24k
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/train_all3_aug_24k exp_20/make_mfcc $mfccdir
+
+到这，错误

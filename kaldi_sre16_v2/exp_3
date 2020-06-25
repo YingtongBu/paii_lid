@@ -1,0 +1,254 @@
+data:
+train_youtube_v3
+test_youtube_v3
+
+. ./cmd.sh
+. ./path.sh
+mfccdir=`pwd`/mfcc
+vaddir=`pwd`/mfcc
+
+nnet_dir=exp_3/xvector_nnet_1a
+
+vim conf/mfcc.conf
+conf=16khz
+
+--- data preparation ---
+
+
+mfccdir=`pwd`/mfcc;
+if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $mfccdir/storage ]; then
+  utils/create_split_dir.pl \
+  /exp_3ort/b{14,15,16,17}/$USER/kaldi-data/egs/sre16/v3/xvector-$(date +'%m_%d_%H_%M')/mfccs/storage $mfccdir/storage
+fi
+
+for name in train_youtube_v3 test_youtube_v3; do
+    utils/utt2spk_to_spk2utt.pl data/${name}/utt2spk > data/${name}/spk2utt
+    utils/fix_data_dir.sh data/${name}
+  done
+5189 / 510
+
+
+--- vtln ---
+
+复制v2/exp的vtln和utt2warp过来(为什么v2/exp的lre07_youtube没有utt2warp？)
+
+
+def uttaddlang():
+  spk2lang = {}
+  utt2warp = {}
+  with open('utt2warp.bak', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      warp = item[1]
+      utt2warp[utt] = warp
+  with open('utt2lang', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      spk = utt.split('-')[0]
+      lang = item[1]
+      spk2lang[spk] = lang
+  utt2dir = []
+  utt2spk = []
+  utt2warp_new = []
+  with open('wav.scp.bak', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      dir = item[1]
+      spk = utt.split('-')[0]
+      id = utt.split('-')[1]
+      start = utt.split('-')[2]
+      end = utt.split('-')[3]
+      lang = spk2lang[spk]
+      warp = utt2warp[utt]
+      utt = f'{lang}-{spk}.{id}-{start}-{end}'
+      utt2dir.append(utt + ' ' + dir + '\n')
+      utt2spk.append(utt + ' ' + lang + '\n')
+      utt2warp_new.append(utt + ' ' + warp + '\n')
+  with open('utt2warp', 'w') as f:
+    f.writelines(line for line in utt2warp_new)
+  with open('wav.scp', 'w') as f:
+    f.writelines(line for line in utt2dir)
+  with open('utt2spk', 'w') as f:
+    f.writelines(line for line in utt2spk)
+
+
+
+for name in train_youtube_v3 test_youtube_v3; do
+    utils/utt2spk_to_spk2utt.pl data/${name}/utt2spk > data/${name}/spk2utt
+    utils/fix_data_dir.sh data/${name}
+  done 
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+vaddir=`pwd`/mfcc;
+for name in train_youtube_v3 test_youtube_v3; do
+    utils/fix_data_dir.sh data/${name}
+    steps/make_mfcc.sh --write-utt2num-frames true --mfcc-config conf/mfcc.conf --nj 2 --cmd "$train_cmd" \
+      data/${name} exp_3/make_mfcc $mfccdir
+    utils/fix_data_dir.sh data/${name}
+    sid/compute_vad_decision.sh --nj 2 --cmd "$train_cmd" \
+      data/${name} exp_3/make_vad $vaddir
+    utils/fix_data_dir.sh data/${name}
+  done
+
+bug:
+utils/validate_data_dir.sh: file data/train_youtube_v3/utt2warp is not in sorted order or has duplicates
+
+方法一：
+sort utt2warp -o utt2warp
+sort wav.scp -o wav.scp
+sort utt2spk -o utt2spk
+不行
+
+方法二：
+https://blog.csdn.net/zjm750617105/article/details/52917313?depth_1-utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromBaidu-1&utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromBaidu-1
+sort -u
+spk-id utt-id中所有中划线的都改成下划线
+不行
+
+方法三：
+comment掉validate_data_dir.sh命令，可以
+
+bug:
+Bad values in options: vtln-low 100 and vtln-high 7500, versus low-freq 20 and high-freq 3700
+修改mfcc conf
+
+
+frame_shift=0.01;
+awk -v frame_shift=$frame_shift '{print $1, $2*frame_shift;}' data/train_youtube_v3/utt2num_frames > data/train_youtube_v3/reco2dur
+
+
+--- data aug ---
+# aug by reverbing (not adding any noises here)
+rvb_opts=();
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/smallroom/rir_list");
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/mediumroom/rir_list");
+steps/data/reverberate_data_dir.py \
+	"${rvb_opts[@]}" \
+	--speech-rvb-probability 1 \
+	--pointsource-noise-addition-probability 0 \
+	--isotropic-noise-addition-probability 0 \
+	--num-replications 1 \
+	--source-sampling-rate 16000 \
+	data/train_youtube_v3 data/train_youtube_v3_reverb
+
+Number of RIRs is 40000
+
+
+cp data/train_youtube_v3/vad.scp data/train_youtube_v3_reverb/
+utils/copy_data_dir.sh --utt-suffix "-reverb" data/train_youtube_v3_reverb data/train_youtube_v3_reverb.new
+rm -rf data/train_youtube_v3_reverb
+mv data/train_youtube_v3_reverb.new data/train_youtube_v3_reverb
+
+
+# Augment with musan
+steps/data/make_musan.sh --sampling-rate 16000 /data/pytong/wav/musan data
+for name in speech noise music; do
+    utils/data/get_utt2dur.sh data/musan_${name}
+    mv data/musan_${name}/utt2dur data/musan_${name}/reco2dur
+  done
+
+steps/data/augment_data_dir.py --utt-suffix "noise" --fg-interval 1 --fg-snrs "15:10:5:0" --fg-noise-dir "data/musan_noise" data/train_youtube_v3 data/train_youtube_v3_noise
+
+steps/data/augment_data_dir.py --utt-suffix "music" --bg-snrs "15:10:8:5" --num-bg-noises "1" --bg-noise-dir "data/musan_music" data/train_youtube_v3 data/train_youtube_v3_music
+
+steps/data/augment_data_dir.py --utt-suffix "babble" --bg-snrs "20:17:15:13" --num-bg-noises "3:4:5:6:7" --bg-noise-dir "data/musan_speech" data/train_youtube_v3 data/train_youtube_v3_babble
+
+
+# Combine reverb, noise, music, and babble into one directory.
+utils/combine_data.sh data/train_youtube_v3_aug data/train_youtube_v3_reverb data/train_youtube_v3_noise data/train_youtube_v3_music data/train_youtube_v3_babble
+
+
+utils/subset_data_dir.sh data/train_youtube_v3_aug 12000 data/train_youtube_v3_aug_12k
+utils/fix_data_dir.sh data/train_youtube_v3_aug_12k
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/train_youtube_v3_aug_12k exp_3/make_mfcc $mfccdir
+
+utils/combine_data.sh data/train_youtube_v3_combined data/train_youtube_v3_aug_12k data/train_youtube_v3
+
+
+
+--- xvector ---
+
+
+. ./cmd.sh;
+local/nnet3/xvector/prepare_feats_for_egs.sh --nj 2 --cmd "$train_cmd" \
+    data/train_youtube_v3_combined data/train_youtube_v3_combined_no_sil exp_3/train_youtube_v3_combined_no_sil
+utils/fix_data_dir.sh data/train_youtube_v3_combined_no_sil
+17166
+
+
+# restrict utt len
+mv data/train_youtube_v3_combined_no_sil/utt2num_frames data/train_youtube_v3_combined_no_sil/utt2num_frames.bak
+
+min_len=500;
+awk -v min_len=${min_len} '{print $1, $2}' data/train_youtube_v3_combined_no_sil/utt2num_frames.bak > data/train_youtube_v3_combined_no_sil/utt2num_frames
+
+utils/filter_scp.pl data/train_youtube_v3_combined_no_sil/utt2num_frames data/train_youtube_v3_combined_no_sil/utt2spk > data/train_youtube_v3_combined_no_sil/utt2spk.new
+mv data/train_youtube_v3_combined_no_sil/utt2spk.new data/train_youtube_v3_combined_no_sil/utt2spk
+utils/fix_data_dir.sh data/train_youtube_v3_combined_no_sil
+17166 because youtube data all = 30 seconds > 500
+
+# delete utterance whose spk utt number < 8
+awk '{print $1, NF-1}' data/train_youtube_v3_combined_no_sil/spk2utt > data/train_youtube_v3_combined_no_sil/spk2num
+uk 9244
+us 7922
+
+min_num_utts=8;
+awk -v min_num_utts=${min_num_utts} '{print $1, $2}' data/train_youtube_v3_combined_no_sil/spk2num | utils/filter_scp.pl - data/train_youtube_v3_combined_no_sil/spk2utt > data/train_youtube_v3_combined_no_sil/spk2utt.new
+
+mv data/train_youtube_v3_combined_no_sil/spk2utt.new data/train_youtube_v3_combined_no_sil/spk2utt
+utils/spk2utt_to_utt2spk.pl data/train_youtube_v3_combined_no_sil/spk2utt > data/train_youtube_v3_combined_no_sil/utt2spk
+
+utils/filter_scp.pl data/train_youtube_v3_combined_no_sil/utt2spk data/train_youtube_v3_combined_no_sil/utt2num_frames > data/train_youtube_v3_combined_no_sil/utt2num_frames.new
+mv data/train_youtube_v3_combined_no_sil/utt2num_frames.new data/train_youtube_v3_combined_no_sil/utt2num_frames
+utils/fix_data_dir.sh data/train_youtube_v3_combined_no_sil
+
+
+nnet_dir=exp_3/xvector_nnet_1a;
+CUDA_VISIBLE_DEVICES=2,3 local/nnet3/xvector/run_xvector.sh --stage 0 --train-stage -1 \
+  --data data/train_youtube_v3_combined_no_sil --nnet-dir $nnet_dir \
+  --egs-dir $nnet_dir/egs
+
+bug:
+Failed to write matrix to stream
+reduce batchsize
+
+
+. ./cmd.sh;
+nnet_dir=exp_3/xvector_nnet_1a;
+CUDA_VISIBLE_DEVICES=2,3 sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 12G" --nj 2 \
+    $nnet_dir data/train_youtube_v3_combined \
+    exp_3/xvectors_train_youtube_v3_combined
+
+. ./cmd.sh;
+nnet_dir=exp_3/xvector_nnet_1a;
+CUDA_VISIBLE_DEVICES=6,7 sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 6G" --nj 2 \
+    $nnet_dir data/test_youtube_v3 \
+    exp_3/xvectors_test_youtube_v3
+
+
+--- lr ---
+
+lid/run_logistic_regression_xvector.sh train_youtube_v3_combined test_youtube_v3 exp_3
+compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/test_youtube_v3/utt2spk)   ark:exp_3/xvectors_test_youtube_v3/output
+19.41
+
+
+--- gmm ---
+../../../src/bin/copy-vector ark:exp_3/xvectors_train_youtube_v3_combined/xvector.1.ark  ark,t:xvectors_train.4/xvector.1.txt
+../../../src/bin/copy-vector ark:exp_3/xvectors_train_youtube_v3_combined/xvector.2.ark  ark,t:xvectors_train.4/xvector.2.txt
+
+../../../src/bin/copy-vector ark:exp_3/xvectors_test_youtube_v3/xvector.1.ark  ark,t:xvectors_test.4/xvector.1.txt
+../../../src/bin/copy-vector ark:exp_3/xvectors_test_youtube_v3/xvector.2.ark  ark,t:xvectors_test.4/xvector.2.txt
+
+0.9577070954211814
+0.888015717092338

@@ -1,0 +1,273 @@
+-------------------------------------------------
+youtube_8k 9:1 8khz
+-------------------------------------------------
+
+awk '{print $2}' data/train_youtube_8k/utt2lang | sort | uniq -c | sort -nr
+   2796 uk
+   2393 us
+
+utils/utt2spk_to_spk2utt.pl data/train_youtube_8k/utt2spk > data/train_youtube_8k/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_youtube_8k/utt2spk > data/lre07_youtube_8k/spk2utt
+
+utils/fix_data_dir.sh data/train_youtube_8k
+utils/fix_data_dir.sh data/lre07_youtube_8k
+5189 / 510
+
+--- VLTN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in train_youtube_8k lre07_youtube_8k; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 80 --cmd "$train_cmd" \
+       data/${t}_novtln exp_4/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_4/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/train_youtube_8k_novtln
+utils/fix_data_dir.sh data/lre07_youtube_8k_novtln
+
+
+utils/subset_data_dir.sh data/train_youtube_8k_novtln 4000 data/train_youtube_8k_4k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_youtube_8k_4k_novtln 256 \
+    exp_4/diag_ubm_vtln
+. ./cmd.sh;
+nice -19 lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 5 --cmd "$train_cmd" \
+     data/train_youtube_8k_4k_novtln exp_4/diag_ubm_vtln exp_4/vtln
+
+
+. ./cmd.sh;
+for t in lre07_youtube_8k train_youtube_8k; do
+    nice -19 lid/get_vtln_warps.sh --nj 10 --cmd "$train_cmd" \
+       data/${t}_novtln exp_4/vtln exp_4/${t}_warps
+    cp exp_4/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_youtube_8k
+utils/filter_scp.pl data/train_youtube_8k/utt2warp data/train_youtube_8k/utt2spk > data/train_youtube_8k/utt2spk_tmp
+cp data/train_youtube_8k/utt2spk_tmp data/train_youtube_8k/utt2spk
+utils/fix_data_dir.sh data/train_youtube_8k
+5189
+
+cp -r data/train_youtube_8k data/train_youtube_8k_dnn
+cp -r data/lre07_youtube_8k data/lre07_youtube_8k_dnn
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/train_youtube_8k exp_4/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/lre07_youtube_8k exp_4/make_mfcc $mfccdir
+
+
+# Extract DNN features
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/train_youtube_8k_dnn exp_4/make_mfcc $mfccdir
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/lre07_youtube_8k_dnn exp_4/make_mfcc $mfccdir
+
+for name in lre07_youtube_8k_dnn train_youtube_8k_dnn lre07_youtube_8k train_youtube_8k; do
+  utils/fix_data_dir.sh data/${name}
+done
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_youtube_8k \
+  exp_4/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_youtube_8k \
+  exp_4/make_vad $vaddir
+
+
+for name in train_youtube_8k lre07_youtube_8k; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+
+
+--- ubm ---
+
+
+utils/subset_data_dir.sh data/train_youtube_8k 5000 data/train_youtube_8k_5k
+utils/fix_data_dir.sh data/train_youtube_8k_5k
+utils/subset_data_dir.sh data/train_youtube_8k_dnn 5000 data/train_youtube_8k_dnn_5k
+utils/fix_data_dir.sh data/train_youtube_8k_dnn_5k
+
+
+. ./cmd.sh;
+nnet=exp_4/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 nice -19 lid/init_full_ubm_from_dnn.sh --nj 4 --cmd "$train_cmd --mem 6G" \
+  data/train_youtube_8k_5k \
+  data/train_youtube_8k_dnn_5k $nnet exp_4/full_ubm
+
+
+
+
+
+--- i-vector ---
+
+. ./cmd.sh;
+nnet=exp_4/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 nice -19 lid/train_ivector_extractor_dnn.sh \
+  --cmd "$train_cmd --mem 80G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 4 exp_4/full_ubm/final.ubm $nnet \
+  data/train_youtube_8k \
+  data/train_youtube_8k_dnn \
+  exp_4/extractor_dnn
+
+
+cp -r data/train_youtube_8k data/train_youtube_8k_lr
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_youtube_8k/utt2lang) \
+  > data/train_youtube_8k_lr/utt2lang
+utils/fix_data_dir.sh data/train_youtube_8k_lr
+5181
+
+awk '{print $2}' data/train_youtube_8k_lr/utt2lang | sort | uniq -c | sort -nr
+   2796 uk
+   2393 us
+
+cp -r data/train_youtube_8k_dnn data/train_youtube_8k_lr_dnn
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_youtube_8k_dnn/utt2lang) \
+  > data/train_youtube_8k_lr_dnn/utt2lang
+utils/fix_data_dir.sh data/train_youtube_8k_lr_dnn
+
+
+awk '{print $2}' data/train_youtube_8k_lr_dnn/utt2lang | sort | uniq -c | sort -nr
+   2796 uk
+   2393 us
+
+. ./cmd.sh;
+nnet=exp_4/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh --cmd "$train_cmd --mem 30G" \
+  --nj 4 exp_4/extractor_dnn \
+  $nnet \
+  data/train_youtube_8k_lr \
+  data/train_youtube_8k_lr_dnn \
+  exp_4/ivectors_train_youtube_8k
+
+. ./cmd.sh;
+nnet=exp_4/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 nice -19 lid/extract_ivectors_dnn.sh --cmd "$train_cmd --mem 30G" \
+  --nj 4 exp_4/extractor_dnn \
+  $nnet \
+  data/lre07_youtube_8k \
+  data/lre07_youtube_8k_dnn \
+  exp_4/ivectors_lre07_youtube_8k
+
+
+lid/run_logistic_regression_edit.sh train_youtube_8k lre07_youtube_8k exp_4
+
+到这
+-------------------------------------------------
+lre07_itg_for_youtube 9:1 8khz
+-------------------------------------------------
+
+
+utils/utt2spk_to_spk2utt.pl data/lre07_itg_for_youtube/utt2spk > data/lre07_itg_for_youtube/spk2utt
+utils/fix_data_dir.sh data/lre07_itg_for_youtube
+251
+
+--- VLTN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in lre07_itg_for_youtube; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 80 --cmd "$train_cmd" \
+       data/${t}_novtln exp_4/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_4/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/lre07_itg_for_youtube_novtln
+251
+
+. ./cmd.sh;
+for t in lre07_itg_for_youtube; do
+    lid/get_vtln_warps.sh --nj 10 --cmd "$train_cmd" \
+       data/${t}_novtln exp_4/vtln exp_4/${t}_warps
+    cp exp_4/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+cp -r data/lre07_itg_for_youtube data/lre07_itg_for_youtube_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/lre07_itg_for_youtube exp_4/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/lre07_itg_for_youtube_dnn exp_4/make_mfcc $mfccdir
+
+for name in lre07_itg_for_youtube_dnn lre07_itg_for_youtube; do
+  utils/fix_data_dir.sh data/${name}
+done
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_itg_for_youtube \
+  exp_4/make_vad $vaddir
+
+
+for name in lre07_itg_for_youtube; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+
+already trained
+
+
+
+--- i-vector ---
+
+. ./cmd.sh;
+nnet=exp_4/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 lid/extract_ivectors_dnn.sh --cmd "$train_cmd --mem 30G" \
+  --nj 6 exp_4/extractor_dnn \
+  $nnet \
+  data/lre07_itg_for_youtube \
+  data/lre07_itg_for_youtube_dnn \
+  exp_4/ivectors_lre07_itg_for_youtube
+
+
+lid/run_logistic_regression_edit.sh train_youtube_8k lre07_itg_for_youtube exp_4
+
+到这

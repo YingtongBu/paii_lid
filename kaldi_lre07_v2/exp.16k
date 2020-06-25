@@ -1,0 +1,30 @@
+exp.16k
+
+16kz asr
+
+--- asr part ---
+vim train_dnn.sh
+train_all_asr -> train_asr
+exp -> exp.16k
+
+vim cmd.sh
+run.pl
+
+vim path.sh
+add $KALDI_ROOT/src/nnet3bin:
+
+ln -s conf.16k conf
+
+ln -s /data/pytong/lre07_v2_exps/exp.16k
+
+nohup ./train_dnn.sh > train_dnn.16k.log &
+
+nohup nice -19 ./train_dnn.sh >> train_dnn.16k.log &
+
+vim local/dnn/run_nnet2_multisplice.sh 
+exp.8k -> exp.16k
+sudo vim local/dnn/run_nnet2_common.sh
+exp.8k -> exp.16k
+conf
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 nohup local/dnn/run_nnet2_multisplice.sh > dnn.16k.log &

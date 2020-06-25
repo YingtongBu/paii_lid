@@ -1,0 +1,443 @@
+-------------------------------------------------
+all2 9:1 8khz
+-------------------------------------------------
+
+awk '{print $2}' data/train_all2/utt2lang | sort | uniq -c | sort -nr
+   4206 us
+   3242 uk
+
+utils/utt2spk_to_spk2utt.pl data/train_all2/utt2spk > data/train_all2/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_all2/utt2spk > data/lre07_all2/spk2utt
+
+utils/fix_data_dir.sh data/train_all2
+utils/fix_data_dir.sh data/lre07_all2
+7448 / 761
+
+--- VTLN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in train_all2 lre07_all2; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_3/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/train_all2_novtln
+utils/fix_data_dir.sh data/lre07_all2_novtln
+7447 / 761
+
+
+utils/subset_data_dir.sh data/train_all2_novtln 5000 data/train_all2_5k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 4G" data/train_all2_5k_novtln 256 \
+    exp_3/diag_ubm_vtln
+. ./cmd.sh;
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 10 --cmd "$train_cmd --mem 4G" \
+     data/train_all2_5k_novtln exp_3/diag_ubm_vtln exp_3/vtln
+
+
+
+. ./cmd.sh;
+for t in lre07_all2 train_all2; do
+    lid/get_vtln_warps.sh --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/vtln exp_3/${t}_warps
+    cp exp_3/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_all2
+utils/filter_scp.pl data/train_all2/utt2warp data/train_all2/utt2spk > data/train_all2/utt2spk_tmp
+cp data/train_all2/utt2spk_tmp data/train_all2/utt2spk
+utils/fix_data_dir.sh data/train_all2
+7447
+
+cp -r data/train_all2 data/train_all2_dnn
+cp -r data/lre07_all2 data/lre07_all2_dnn
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/train_all2 exp_3/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/lre07_all2 exp_3/make_mfcc $mfccdir
+
+# Extract DNN features
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/train_all2_dnn exp_3/make_mfcc $mfccdir
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/lre07_all2_dnn exp_3/make_mfcc $mfccdir
+
+for name in lre07_all2_dnn train_all2_dnn lre07_all2 train_all2; do
+  utils/fix_data_dir.sh data/${name}
+done
+7447/761
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_all2 \
+  exp_3/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_all2 \
+  exp_3/make_vad $vaddir
+
+
+for name in train_all2 lre07_all2; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+
+
+--- ubm ---
+
+
+utils/subset_data_dir.sh data/train_all2 5000 data/train_all2_5k
+utils/fix_data_dir.sh data/train_all2_5k
+utils/subset_data_dir.sh data/train_all2_dnn 5000 data/train_all2_dnn_5k
+utils/fix_data_dir.sh data/train_all2_dnn_5k
+
+
+. ./cmd.sh;
+nnet=exp_3/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/init_full_ubm_from_dnn.sh --nj 4 --cmd "$train_cmd --mem 6G" \
+  data/train_all2_5k \
+  data/train_all2_dnn_5k $nnet exp_3/full_ubm
+
+
+
+--- i-vector ---
+
+. ./cmd.sh;
+nnet=exp_3/nnet2_online/nnet_ms_a/final.mdl;
+lid/train_ivector_extractor_dnn.sh \
+  --cmd "$train_cmd --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 8 exp_3/full_ubm/final.ubm $nnet \
+  data/train_all2 \
+  data/train_all2_dnn \
+  exp_3/extractor_dnn_2
+
+
+cp -r data/train_all2 data/train_all2_lr
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_all2/utt2lang) \
+  > data/train_all2_lr/utt2lang
+utils/fix_data_dir.sh data/train_all2_lr
+7447
+
+
+awk '{print $2}' data/train_all2_lr/utt2lang | sort | uniq -c | sort -nr
+   4206 us
+   3241 uk
+
+cp -r data/train_all2_dnn data/train_all2_lr_dnn
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_all2_dnn/utt2lang) \
+  > data/train_all2_lr_dnn/utt2lang
+utils/fix_data_dir.sh data/train_all2_lr_dnn
+
+
+awk '{print $2}' data/train_all2_lr_dnn/utt2lang | sort | uniq -c | sort -nr
+   4206 us
+   3241 uk
+
+
+. ./cmd.sh;
+nnet=exp_3/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh --cmd "$train_cmd --mem 30G" \
+  --nj 4 exp_3/extractor_dnn \
+  $nnet \
+  data/train_all2_lr \
+  data/train_all2_lr_dnn \
+  exp_3/ivectors_train_all2
+
+. ./cmd.sh;
+nnet=exp_3/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=0,1,2,3 lid/extract_ivectors_dnn.sh --cmd "$train_cmd --mem 30G" \
+  --nj 4 exp_3/extractor_dnn \
+  $nnet \
+  data/lre07_all2 \
+  data/lre07_all2_dnn \
+  exp_3/ivectors_lre07_all2
+
+lid/run_logistic_regression_edit.sh train_all2 lre07_all2 exp_3
+
+到这
+-------------------------------------------------
+lre07_youtube_for_all 9:1 8khz
+-------------------------------------------------
+
+
+utils/utt2spk_to_spk2utt.pl data/lre07_youtube_for_all/utt2spk > data/lre07_youtube_for_all/spk2utt
+utils/fix_data_dir.sh data/lre07_youtube_for_all
+
+
+--- VLTN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in lre07_youtube_for_all; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_3/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/lre07_youtube_for_all_novtln
+
+. ./cmd.sh;
+for t in lre07_youtube_for_all; do
+    nice -19 lid/get_vtln_warps.sh --nj 10 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/vtln exp_3/${t}_warps
+    cp exp_3/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+cp -r data/lre07_youtube_for_all data/lre07_youtube_for_all_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/lre07_youtube_for_all exp_3/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/lre07_youtube_for_all_dnn exp_3/make_mfcc $mfccdir
+
+for name in lre07_youtube_for_all_dnn lre07_youtube_for_all; do
+  utils/fix_data_dir.sh data/${name}
+done
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_youtube_for_all \
+  exp_3/make_vad $vaddir
+
+
+for name in lre07_youtube_for_all; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+
+already trained
+
+
+
+--- i-vector ---
+
+. ./cmd.sh;
+nnet=exp_3/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_3/extractor_dnn \
+  $nnet \
+  data/lre07_youtube_for_all \
+  data/lre07_youtube_for_all_dnn \
+  exp_3/ivectors_lre07_youtube_for_all
+
+lid/run_logistic_regression_edit.sh train_all2 lre07_youtube_for_all exp_3
+
+
+到这
+
+-------------------------------------------------
+lre07_itg_for_all 9:1 8khz
+-------------------------------------------------
+
+
+utils/utt2spk_to_spk2utt.pl data/lre07_itg_for_all/utt2spk > data/lre07_itg_for_all/spk2utt
+utils/fix_data_dir.sh data/lre07_itg_for_all
+
+
+--- VLTN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in lre07_itg_for_all; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 80 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_3/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/lre07_itg_for_all_novtln
+
+. ./cmd.sh;
+for t in lre07_itg_for_all; do
+    lid/get_vtln_warps.sh --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/vtln exp_3/${t}_warps
+    cp exp_3/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+cp -r data/lre07_itg_for_all data/lre07_itg_for_all_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/lre07_itg_for_all exp_3/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/lre07_itg_for_all_dnn exp_3/make_mfcc $mfccdir
+
+for name in lre07_itg_for_all_dnn lre07_itg_for_all; do
+  utils/fix_data_dir.sh data/${name}
+done
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_itg_for_all \
+  exp_3/make_vad $vaddir
+
+
+for name in lre07_itg_for_all; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+
+already trained
+
+
+--- i-vector ---
+
+. ./cmd.sh;
+nnet=exp_3/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh --cmd "$train_cmd --mem 30G" \
+  --nj 4 exp_3/extractor_dnn \
+  $nnet \
+  data/lre07_itg_for_all \
+  data/lre07_itg_for_all_dnn \
+  exp_3/ivectors_lre07_itg_for_all
+
+
+lid/run_logistic_regression_edit.sh train_all2 lre07_itg_for_all exp_3
+
+到这
+
+-------------------------------------------------
+lre07_all3_for_all 9:1 8khz 用二分类得三类 pr_curve.py: def binary_wer
+-------------------------------------------------
+utils/utt2spk_to_spk2utt.pl data/lre07_all3_for_all/utt2spk > data/lre07_all3_for_all/spk2utt
+utils/fix_data_dir.sh data/lre07_all3_for_all
+400
+
+--- VLTN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in lre07_all3_for_all; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_3/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/lre07_all3_for_all_novtln
+
+. ./cmd.sh;
+for t in lre07_all3_for_all; do
+    lid/get_vtln_warps.sh --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_3/vtln exp_3/${t}_warps
+    cp exp_3/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+cp -r data/lre07_all3_for_all data/lre07_all3_for_all_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 10 --cmd "$train_cmd" \
+  data/lre07_all3_for_all exp_3/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/lre07_all3_for_all_dnn exp_3/make_mfcc $mfccdir
+
+for name in lre07_all3_for_all_dnn lre07_all3_for_all; do
+  utils/fix_data_dir.sh data/${name}
+done
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_all3_for_all \
+  exp_3/make_vad $vaddir
+
+
+for name in lre07_all3_for_all; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+
+already trained
+
+
+--- i-vector ---
+
+. ./cmd.sh;
+nnet=exp_3/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 exp_3/extractor_dnn \
+  $nnet \
+  data/lre07_all3_for_all \
+  data/lre07_all3_for_all_dnn \
+  exp_3/ivectors_lre07_all3_for_all
+
+
+lid/run_logistic_regression_edit.sh train_all2 lre07_all3_for_all exp_3
+
+到这

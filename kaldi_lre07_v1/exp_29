@@ -1,0 +1,333 @@
+
+-------------------------------------------------
+data_relabel0609
+-------------------------------------------------
+
+
+*** Fix data ***
+awk '{print $2}' data/data_relabel0609/utt2lang | sort | uniq -c | sort -nr
+    399 us
+    263 nnn
+    233 nnm
+    230 nnl
+    224 uk
+    164 nnh
+    144 ok
+     53 nn
+
+
+utils/utt2spk_to_spk2utt.pl data/data_relabel0609/utt2spk > data/data_relabel0609/spk2utt
+utils/utt2spk_to_spk2utt.pl data/test_relabel0609/utt2spk > data/test_relabel0609/spk2utt
+
+utils/fix_data_dir.sh data/data_relabel0609
+utils/fix_data_dir.sh data/test_relabel0609
+1710
+451
+
+--- VTLN ---
+
+. ./cmd.sh;
+for t in data_relabel0609 test_relabel0609; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 12 --cmd "$train_cmd" \
+       data/${t}_novtln exp_29/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_29/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/data_relabel0609_novtln
+utils/fix_data_dir.sh data/test_relabel0609_novtln
+
+utils/subset_data_dir.sh data/data_relabel0609_novtln 1500 data/data_relabel0609_1k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/data_relabel0609_1k_novtln 256 \
+    exp_29/diag_ubm_vtln
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+     data/data_relabel0609_1k_novtln exp_29/diag_ubm_vtln exp_29/vtln
+
+. ./cmd.sh;
+for t in test_relabel0609 data_relabel0609; do
+    lid/get_vtln_warps.sh --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp_29/vtln exp_29/${t}_warps
+    cp exp_29/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/data_relabel0609
+utils/filter_scp.pl data/data_relabel0609/utt2warp data/data_relabel0609/utt2spk > data/data_relabel0609/utt2spk_tmp
+cp data/data_relabel0609/utt2spk_tmp data/data_relabel0609/utt2spk
+utils/fix_data_dir.sh data/data_relabel0609
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 80 --cmd "$train_cmd" \
+  data/data_relabel0609 exp_29/make_mfcc $mfccdir
+
+
+utils/fix_data_dir.sh data/test_relabel0609
+utils/filter_scp.pl data/test_relabel0609/utt2warp data/test_relabel0609/utt2spk > data/test_relabel0609/utt2spk_tmp
+cp data/test_relabel0609/utt2spk_tmp data/test_relabel0609/utt2spk
+utils/fix_data_dir.sh data/test_relabel0609
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/test_relabel0609 exp_29/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/data_relabel0609 \
+  exp_29/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/test_relabel0609 \
+  exp_29/make_vad $vaddir
+
+utils/subset_data_dir.sh data/data_relabel0609 800 data/data_relabel0609_1k
+utils/subset_data_dir.sh data/data_relabel0609 1500 data/data_relabel0609_3k
+
+
+. ./cmd.sh;
+lid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/data_relabel0609_1k 2048 exp_29/diag_ubm_2048
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/data_relabel0609_3k exp_29/diag_ubm_2048 exp_29/full_ubm_2048_3k
+
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 35G" \
+  data/data_relabel0609 exp_29/full_ubm_2048_3k exp_29/full_ubm_2048
+
+
+--- i-vector ---
+
+nohup lid/train_ivector_extractor.sh --cmd "run.pl --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_23/full_ubm_2048/final.ubm data/data_relabel0609 \
+  exp_29/extractor_2048 >> data_relabel0609_ivector.log29 &
+
+
+cp -r data/data_relabel0609 data/data_relabel0609_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/data_relabel0609/utt2lang) \
+  > data/data_relabel0609_lr/utt2lang
+utils/fix_data_dir.sh data/data_relabel0609_lr
+
+awk '{print $2}' data/data_relabel0609_lr/utt2lang | sort | uniq -c | sort -nr
+   1260 ok
+    450 nn
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_29/extractor_2048 data/data_relabel0609_lr exp_29/ivectors_data_relabel0609 > extract_ivector.log1 &
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 3 \
+   exp_29/extractor_2048 data/test_relabel0609 exp_29/ivectors_test_relabel0609 > extract_ivector.log2 &
+
+
+lid/run_logistic_regression_edit.sh data_relabel0609 test_relabel0609 exp_29
+
+
+
+cp -r data/data_relabel0609 data/data_relabel0609_usennl_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/data_relabel0609/utt2lang) \
+  > data/data_relabel0609_usennl_lr/utt2lang
+utils/fix_data_dir.sh data/data_relabel0609_usennl_lr
+
+awk '{print $2}' data/data_relabel0609_usennl_lr/utt2lang | sort | uniq -c | sort -nr
+   1030 ok
+    450 nn
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_29/extractor_2048 data/data_relabel0609_usennl_lr exp_29/ivectors_data_relabel0609_usennl > extract_ivector.log2 &
+
+lid/run_logistic_regression_edit.sh data_relabel0609_usennl test_relabel0609 exp_29
+
+
+
+
+
+cp -r data/data_relabel0609 data/data_relabel0609_6cls_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/data_relabel0609/utt2lang) \
+  > data/data_relabel0609_6cls_lr/utt2lang
+utils/fix_data_dir.sh data/data_relabel0609_6cls_lr
+1513
+
+awk '{print $2}' data/data_relabel0609_6cls_lr/utt2lang | sort | uniq -c | sort -nr
+    399 us
+    263 nnn
+    233 nnm
+    230 nnl
+    224 uk
+    164 nnh
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_29/extractor_2048 data/data_relabel0609_6cls_lr exp_29/ivectors_data_relabel0609_6cls > extract_ivector.log2 &
+
+lid/run_logistic_regression_edit.sh data_relabel0609_6cls test_relabel0609 exp_29
+
+
+
+cp -r data/data_relabel0609 data/data_relabel0609_6cls_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/data_relabel0609/utt2lang) \
+  > data/data_relabel0609_6cls_lr/utt2lang
+utils/fix_data_dir.sh data/data_relabel0609_6cls_lr
+1513
+
+awk '{print $2}' data/data_relabel0609_6cls_lr/utt2lang | sort | uniq -c | sort -nr
+    399 us
+    263 nnn
+    233 nnm
+    230 nnl
+    224 uk
+    164 nnh
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_29/extractor_2048 data/data_relabel0609_6cls_lr exp_29/ivectors_data_relabel0609_6cls > extract_ivector.log2 &
+
+lid/run_logistic_regression_edit.sh data_relabel0609_6cls test_relabel0609 exp_29
+
+-------------------------------------------------
+test on 0610 data
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/data_0610_test29/utt2spk > data/data_0610_test29/spk2utt
+utils/fix_data_dir.sh data/data_0610_test29
+877
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in data_0610_test29; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_29/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_29/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/data_0610_test29_novtln
+871
+
+. ./cmd.sh;
+for t in data_0610_test29; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_29/vtln exp_29/${t}_warps
+    cp exp_29/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/data_0610_test29
+utils/filter_scp.pl data/data_0610_test29/utt2warp data/data_0610_test29/utt2spk > data/data_0610_test29/utt2spk_tmp
+cp data/data_0610_test29/utt2spk_tmp data/data_0610_test29/utt2spk
+utils/fix_data_dir.sh data/data_0610_test29
+865
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/data_0610_test29 exp_29/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/data_0610_test29 \
+  exp_29/make_vad $vaddir
+
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 8 \
+   exp_29/extractor_2048 data/data_0610_test29 exp_29/ivectors_data_0610_test29 > extract_ivector.log1&
+
+
+lid/run_logistic_regression_edit.sh data_relabel0609 data_0610_test29 exp_29
+
+
+AFTER RELABEL
+
+awk '{print $2}' data/data_0610_test29/utt2lang_0610data_relabel_itg | sort | uniq -c | sort -nr
+    238 us
+    164 nnm
+    159 nnl
+    126 uk
+    106 nnn
+     82 nnh
+
+../../../src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/data_0610_test29/utt2lang) \
+  ark:exp_29/ivectors_data_0610_test29/output
+
+
+
+-------------------------------------------------
+test on 0617 data
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/data_0617_test29/utt2spk > data/data_0617_test29/spk2utt
+utils/fix_data_dir.sh data/data_0617_test29
+731
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in data_0617_test29; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_29/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_29/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/data_0617_test29_novtln
+729
+
+. ./cmd.sh;
+for t in data_0617_test29; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_29/vtln exp_29/${t}_warps
+    cp exp_29/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/data_0617_test29
+utils/filter_scp.pl data/data_0617_test29/utt2warp data/data_0617_test29/utt2spk > data/data_0617_test29/utt2spk_tmp
+cp data/data_0617_test29/utt2spk_tmp data/data_0617_test29/utt2spk
+utils/fix_data_dir.sh data/data_0617_test29
+724
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/data_0617_test29 exp_29/make_mfcc $mfccdir
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/data_0617_test29 \
+  exp_29/make_vad $vaddir
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 8 \
+   exp_29/extractor_2048 data/data_0617_test29 exp_29/ivectors_data_0617_test29 > extract_ivector.log1&
+
+awk '{print $2}' data/data_0617_test29/utt2lang.6 | sort | uniq -c | sort -nr
+    198 nnm
+    177 us
+    131 nnl
+     79 nnn
+     75 uk
+     64 nnh
+
+lid/run_logistic_regression_edit.sh data_relabel0609 data_0617_test29 exp_29
+
+../../../src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/data_0617_test29/utt2lang) \
+  ark:exp_29/ivectors_data_0617_test29/output

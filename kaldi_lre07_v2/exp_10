@@ -1,0 +1,196 @@
+
+split_india()
+
+for name in train_comvoc_india lre07_comvoc_india; do
+    utils/utt2spk_to_spk2utt.pl data/${name}/utt2spk > data/${name}/spk2utt
+    utils/fix_data_dir.sh data/${name}
+  done
+
+
+utils/subset_data_dir.sh --per-spk data/train_comvoc_india 10 data/train_comvoc_india_subset
+utils/subset_data_dir.sh --per-spk data/lre07_comvoc_india 10 data/lre07_comvoc_india_subset
+
+mkdir data/train_india
+cd data/train_india
+cat ../train_comvoc_india_subset/wav.scp ../train_youtube/wav.scp > wav.scp
+cat ../train_comvoc_india_subset/utt2spk ../train_youtube/utt2spk > utt2spk
+cat ../train_comvoc_india_subset/utt2lang ../train_youtube/utt2lang > utt2lang
+
+mkdir data/lre07_india
+cd data/lre07_india
+cat ../lre07_comvoc_india_subset/wav.scp ../lre07_youtube/wav.scp > wav.scp
+cat ../lre07_comvoc_india_subset/utt2spk ../lre07_youtube/utt2spk > utt2spk
+cat ../lre07_comvoc_india_subset/utt2lang ../lre07_youtube/utt2lang > utt2lang
+
+
+awk '{print $2}' data/train_india/utt2lang | sort | uniq -c | sort -nr
+
+
+--- VLTN ---
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in train_india lre07_india; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_10/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_10/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/train_india_novtln
+utils/fix_data_dir.sh data/lre07_india_novtln
+
+utils/fix_data_dir.sh data/train_india
+utils/fix_data_dir.sh data/lre07_india
+12386 / 1308
+
+. ./cmd.sh;
+for t in lre07_india train_india; do
+    lid/get_vtln_warps.sh --nj 30 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/vtln exp_10/${t}_warps
+    cp exp_10/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_india
+utils/filter_scp.pl data/train_india/utt2warp data/train_india/utt2spk > data/train_india/utt2spk_tmp
+cp data/train_india/utt2spk_tmp data/train_india/utt2spk
+utils/fix_data_dir.sh data/train_india
+12386
+
+cp -r data/train_india data/train_india_dnn
+cp -r data/lre07_india data/lre07_india_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 30 --cmd "$train_cmd" \
+  data/train_india exp_10/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 30 --cmd "$train_cmd" \
+  data/lre07_india exp_10/make_mfcc $mfccdir
+
+# Extract DNN features
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 30 --cmd "$train_cmd" \
+  data/train_india_dnn exp_10/make_mfcc $mfccdir
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 30 --cmd "$train_cmd" \
+  data/lre07_india_dnn exp_10/make_mfcc $mfccdir
+
+for name in lre07_india_dnn train_india_dnn lre07_india train_india; do
+  utils/fix_data_dir.sh data/${name}
+done
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 10 --cmd "$train_cmd" data/train_india \
+  exp_10/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 10 --cmd "$train_cmd" data/lre07_india \
+  exp_10/make_vad $vaddir
+
+
+for name in train_india lre07_india; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+这里直接用exp_5，下面两段不需要了
+utils/subset_data_dir.sh data/train_india 6000 data/train_india_6k
+utils/fix_data_dir.sh data/train_india_6k
+utils/subset_data_dir.sh data/train_india_dnn 6000 data/train_india_dnn_6k
+utils/fix_data_dir.sh data/train_india_dnn_6k
+
+
+. ./cmd.sh;
+nnet=exp_10/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/init_full_ubm_from_dnn.sh --nj 4 --cmd "$train_cmd --mem 6G" \
+  data/train_india_6k \
+  data/train_india_dnn_6k $nnet exp_10/full_ubm
+
+
+--- i-vector ---
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/train_ivector_extractor_dnn.sh \
+  --cmd "run.pl --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 4 exp_5/full_ubm/final.ubm exp_10/nnet2_online/nnet_ms_a/final.mdl \
+  data/train_india \
+  data/train_india_dnn \
+  exp_10/extractor_dnn
+
+lid/train_ivector_extractor_dnn.sh.tmp \
+  --cmd "run.pl --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 8 exp_5/full_ubm/final.ubm exp_10/nnet2_online/nnet_ms_a/final.mdl \
+  data/train_india \
+  data/train_india_dnn \
+  exp_10/extractor_dnn
+
+--- lr ---
+
+vim local/general_lr_closed_set_langs.txt
+us 0
+uk 1
+india 2
+
+
+cp -r data/train_india data/train_india_lr
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_india/utt2lang) \
+  > data/train_india_lr/utt2lang
+utils/fix_data_dir.sh data/train_india_lr
+12386
+
+awk '{print $2}' data/train_india_lr/utt2lang | sort | uniq -c | sort -nr
+
+cp -r data/train_india_dnn data/train_india_lr_dnn
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_india_dnn/utt2lang) \
+  > data/train_india_lr_dnn/utt2lang
+utils/fix_data_dir.sh data/train_india_lr_dnn
+
+
+awk '{print $2}' data/train_india_lr_dnn/utt2lang | sort | uniq -c | sort -nr
+
+
+. ./cmd.sh;
+nnet=exp_10/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_10/extractor_dnn \
+  $nnet \
+  data/train_india_lr \
+  data/train_india_lr_dnn \
+  exp_10/ivectors_train_india
+
+. ./cmd.sh;
+nnet=exp_10/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=1,2,3,4 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_10/extractor_dnn \
+  $nnet \
+  data/lre07_india \
+  data/lre07_india_dnn \
+  exp_10/ivectors_lre07_india
+
+
+lid/run_logistic_regression_edit.sh train_india lre07_india exp_10
+4.82

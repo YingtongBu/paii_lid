@@ -1,0 +1,440 @@
+
+-------------------------------------------------
+train_0530_itg
+-------------------------------------------------
+
+--- Prepare data ---
+utils/combine_data.sh /data/pytong/data/train_0530_itg /data/pytong/data/train_itg0*
+utils/combine_data.sh /data/pytong/data/lre07_0530_itg /data/pytong/data/lre07_itg0*
+
+--- Edit files ---
+
+vim local/general_lr_closed_set_langs.txt
+vim conf/mfcc.conf
+vim conf/mfcc_vtln.conf
+--allow-downsample=true
+
+vim cmd.sh
+queue.pl run.pl
+
+*** Fix data ***
+awk '{print $2}' data/train_0530_itg/utt2lang | sort | uniq -c | sort -nr
+   2017 nn
+   1487 us
+    528 uk
+
+
+utils/utt2spk_to_spk2utt.pl data/train_0530_itg/utt2spk > data/train_0530_itg/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_0530_itg/utt2spk > data/lre07_0530_itg/spk2utt
+
+utils/fix_data_dir.sh data/train_0530_itg
+utils/fix_data_dir.sh data/lre07_0530_itg
+
+--- VTLN ---
+
+. ./cmd.sh;
+for t in train_0530_itg lre07_0530_itg; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 12 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_23/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/train_0530_itg_novtln
+utils/fix_data_dir.sh data/lre07_0530_itg_novtln
+
+utils/subset_data_dir.sh data/train_0530_itg_novtln 4000 data/train_0530_itg_4k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_0530_itg_4k_novtln 256 \
+    exp_23/diag_ubm_vtln
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+     data/train_0530_itg_4k_novtln exp_23/diag_ubm_vtln exp_23/vtln
+
+. ./cmd.sh;
+for t in lre07_0530_itg train_0530_itg; do
+    lid/get_vtln_warps.sh --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/vtln exp_23/${t}_warps
+    cp exp_23/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_0530_itg
+utils/filter_scp.pl data/train_0530_itg/utt2warp data/train_0530_itg/utt2spk > data/train_0530_itg/utt2spk_tmp
+cp data/train_0530_itg/utt2spk_tmp data/train_0530_itg/utt2spk
+utils/fix_data_dir.sh data/train_0530_itg
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 80 --cmd "$train_cmd" \
+  data/train_0530_itg exp_23/make_mfcc $mfccdir
+
+
+utils/fix_data_dir.sh data/lre07_0530_itg
+utils/filter_scp.pl data/lre07_0530_itg/utt2warp data/lre07_0530_itg/utt2spk > data/lre07_0530_itg/utt2spk_tmp
+cp data/lre07_0530_itg/utt2spk_tmp data/lre07_0530_itg/utt2spk
+utils/fix_data_dir.sh data/lre07_0530_itg
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/lre07_0530_itg exp_23/make_mfcc $mfccdir
+# number of njobs = number of mfcc file
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_0530_itg \
+  exp_23/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_0530_itg \
+  exp_23/make_vad $vaddir
+
+utils/subset_data_dir.sh data/train_0530_itg 1000 data/train_0530_itg_1k
+utils/subset_data_dir.sh data/train_0530_itg 3000 data/train_0530_itg_3k
+
+
+. ./cmd.sh;
+lid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_0530_itg_1k 2048 exp_23/diag_ubm_2048
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_0530_itg_3k exp_23/diag_ubm_2048 exp_23/full_ubm_2048_3k
+
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 35G" \
+  data/train_0530_itg exp_23/full_ubm_2048_3k exp_23/full_ubm_2048
+
+
+--- i-vector ---
+
+nohup lid/train_ivector_extractor.sh --cmd "run.pl --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_23/full_ubm_2048/final.ubm data/train_0530_itg \
+  exp_23/extractor_2048 >> train_0530_itg_ivector.log23 &
+
+
+cp -r data/train_0530_itg data/train_0530_itg_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_0530_itg/utt2lang) \
+  > data/train_0530_itg_lr/utt2lang
+utils/fix_data_dir.sh data/train_0530_itg_lr
+
+awk '{print $2}' data/train_0530_itg_lr/utt2lang | sort | uniq -c | sort -nr
+   1997 nn
+   1477 us
+    523 uk
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_23/extractor_2048 data/train_0530_itg_lr exp_23/ivectors_train_0530_itg > extract_ivector.log1 &
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 3 \
+   exp_23/extractor_2048 data/lre07_0530_itg exp_23/ivectors_lre07_0530_itg > extract_ivector.log2 &
+
+lid/run_logistic_regression.sh --prior-scale 0.70 \
+  --conf conf/logistic-regression.conf
+
+
+Bug:
+ERROR (compute-wer[5.5.660~1-6a21b]:main():compute-wer.cc:84) No hypothesis for key GeorgeOsborne-ytb0121-312000-315000 and strict mode specifier.
+vim exp_23/ivectors_lre07_0530_itg/output
+add GeorgeOsborne-ytb0121-312000-315000 uk
+~/kaldi/src/bin/compute-wer --text ark:<(lid/remove_dialect.pl data/lre07_0530_itg/utt2lang) \
+  ark:exp_23/ivectors_lre07_0530_itg/output
+
+~/kaldi/src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/train_0530_itg_lr/utt2lang) \
+  ark:exp_23/ivectors_train_0530_itg/output
+
+
+-------------------------------------------------
+test on itg_0512
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/itg_0512/utt2spk > data/itg_0512/spk2utt
+utils/fix_data_dir.sh data/itg_0512
+727
+--- VLTN ---
+
+. ./cmd.sh;
+for t in itg_0512; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_23/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/itg_0512_novtln
+1549
+
+. ./cmd.sh;
+for t in itg_0512; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/vtln exp_23/${t}_warps
+    cp exp_23/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/itg_0512
+utils/filter_scp.pl data/itg_0512/utt2warp data/itg_0512/utt2spk > data/itg_0512/utt2spk_tmp
+cp data/itg_0512/utt2spk_tmp data/itg_0512/utt2spk
+utils/fix_data_dir.sh data/itg_0512
+724
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/itg_0512 exp_23/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/itg_0512 \
+  exp_23/make_vad $vaddir
+
+
+. ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 8 \
+   exp_23/extractor_2048 data/itg_0512 exp_23/ivectors_itg_0512
+到这
+
+edit itg_0512/utt2lang
+def three_classes():
+  utt2lang = []
+  with open('utt2lang.6', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      if lang not in ['uk', 'us']:
+        lang = 'nn'
+      utt2lang.append(utt + ' ' + lang + '\n')
+  with open(f'utt2lang.3', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+three_classes()
+ln -s utt2lang.3 utt2lang
+
+lid/run_logistic_regression.sh --prior-scale 0.70 \
+  --conf conf/logistic-regression.conf
+
+
+
+
+
+
+
+utils/utt2spk_to_spk2utt.pl data/lre07_0530_itg/utt2spk > data/lre07_0530_itg/spk2utt
+utils/fix_data_dir.sh data/lre07_0530_itg
+481
+
+edit lre07_0530_itg/utt2lang
+def three_classes():
+  utt2lang = []
+  with open('utt2lang.6', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      if lang not in ['uk', 'us']:
+        lang = 'nn'
+      utt2lang.append(utt + ' ' + lang + '\n')
+  with open(f'utt2lang.3', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+ln -s utt2lang.3 utt2lang
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in lre07_0530_itg; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_23/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/lre07_0530_itg_novtln
+481
+
+. ./cmd.sh;
+for t in lre07_0530_itg; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/vtln exp_23/${t}_warps
+    cp exp_23/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/lre07_0530_itg
+utils/filter_scp.pl data/lre07_0530_itg/utt2warp data/lre07_0530_itg/utt2spk > data/lre07_0530_itg/utt2spk_tmp
+cp data/lre07_0530_itg/utt2spk_tmp data/lre07_0530_itg/utt2spk
+utils/fix_data_dir.sh data/lre07_0530_itg
+477
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/lre07_0530_itg exp_23/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_0530_itg \
+  exp_23/make_vad $vaddir
+
+
+. ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 8 \
+   exp_23/extractor_2048 data/lre07_0530_itg exp_23/ivectors_lre07_0530_itg
+
+
+
+lid/run_logistic_regression.23.sh --prior-scale 0.7 \
+  --conf conf/logistic-regression.conf
+23.69 [ 113 / 477 ]
+
+
+../../../src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/lre07_0530_itg/utt2lang) \
+  ark:exp_23/ivectors_lre07_0530_itg/output
+
+../../../src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/train_0530_itg_lr/utt2lang) \
+  ark:exp_23/ivectors_train_0530_itg/output
+
+45.61 [ 218 / 478 ]
+
+
+
+
+for ((i=1;i<=5;i++)); do
+  ../../../src/bin/copy-vector ark:exp_23/ivectors_train_0530_itg/ivector.$i.ark  ark,t:ivectors.23/ivector_train.$i.txt
+done
+
+for ((i=1;i<=8;i++)); do
+  ../../../src/bin/copy-vector ark:exp_23/ivectors_lre07_0530_itg/ivector.$i.ark  ark,t:ivectors.23/ivector_lre07.$i.txt
+done
+
+
+-------------------------------------------------
+test on 0603 data
+-------------------------------------------------
+
+utils/combine_data.sh /data/pytong/data/data_0603 /data/pytong/data/train_itg0603 /data/pytong/data/lre07_itg0603
+
+utils/utt2spk_to_spk2utt.pl data/data_0603/utt2spk > data/data_0603/spk2utt
+utils/fix_data_dir.sh data/data_0603
+712
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in data_0603; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_23/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/data_0603_novtln
+706
+
+. ./cmd.sh;
+for t in data_0603; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_23/vtln exp_23/${t}_warps
+    cp exp_23/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/data_0603
+utils/filter_scp.pl data/data_0603/utt2warp data/data_0603/utt2spk > data/data_0603/utt2spk_tmp
+cp data/data_0603/utt2spk_tmp data/data_0603/utt2spk
+utils/fix_data_dir.sh data/data_0603
+705
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/data_0603 exp_23/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/data_0603 \
+  exp_23/make_vad $vaddir
+
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "$train_cmd --mem 3G" --nj 8 \
+   exp_23/extractor_2048 data/data_0603 exp_23/ivectors_data_0603 > extract_ivector.log1&
+
+cd data_0603/utt2lang
+def two_classes():
+  utt2lang = []
+  with open('utt2lang.6', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      if lang in ['nnm', 'nnh']:
+        lang = 'nn'
+      else:
+        lang = 'ok'
+      utt2lang.append(utt + ' ' + lang + '\n')
+  with open(f'utt2lang.2', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+ln -s utt2lang.5 utt2lang
+
+lid/run_logistic_regression_edit.sh train_0530_itg data_0603 exp_23
+
+
+../../../src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/data_0603/utt2lang.2) \
+  ark:exp_23/ivectors_data_0603/output
+
+
+lid/run_logistic_regression_edit.sh train_0530_itg lre07_0530_itg exp_23
+
+
+lid/run_logistic_regression_edit.sh train_0530_itg data_0603 exp_23
+
+------------
+ivector=400
+------------
+nohup lid/train_ivector_extractor.sh --cmd "run.pl --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_23/full_ubm_2048/final.ubm data/train_0530_itg \
+  exp_23/extractor_2048_400 >> train_0530_itg_ivector.log23 &
+
+
+------------
+ivector=200
+------------
+nohup lid/train_ivector_extractor_200.sh --cmd "run.pl --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_23/full_ubm_2048/final.ubm data/train_0530_itg \
+  exp_23/extractor_2048_200 >> train_0530_itg_ivector.log23.200 &
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_23/extractor_2048_200 data/train_0530_itg_lr exp_23/ivectors_train_0530_itg_200 > extract_ivector.log1 &
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 3 \
+   exp_23/extractor_2048_200 data/lre07_0530_itg exp_23/ivectors_lre07_0530_itg_200 > extract_ivector.log2 &
+
+lid/run_logistic_regression_edit.sh train_0530_itg lre07_0530_itg exp_23
+
+   ../../../src/bin/compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/lre07_0530_itg/utt2lang) \
+  ark:exp_23/ivectors_lre07_0530_itg_200/output

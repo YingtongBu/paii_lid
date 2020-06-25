@@ -1,0 +1,203 @@
+train_four
+
+us/uk/nn
+
+cat wav.scp.bak /data/pytong/wav/voxceleb1/data/dev/wav.scp /data/pytong/wav/voxceleb1/data/test/wav.scp /data/pytong/wav/comvoc/data/wav.scp > wav.scp
+
+cat utt2spk.bak /data/pytong/wav/voxceleb1/data/dev/utt2spk /data/pytong/wav/voxceleb1/data/test/utt2spk /data/pytong/wav/comvoc/data/utt2spk > utt2spk
+
+cat utt2lang.bak /data/pytong/wav/voxceleb1/data/utt2lang.filtered.2 /data/pytong/wav/comvoc/data/utt2lang.filtered.2 > utt2lang
+
+
+awk '{print $2}' data/train_four/utt2lang | sort | uniq -c | sort -nr
+ 305982 us
+ 107879 uk
+  90381 nn
+
+utils/utt2spk_to_spk2utt.pl data/train_four/utt2spk > data/train_four/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_four/utt2spk > data/lre07_four/spk2utt
+
+utils/fix_data_dir.sh data/train_four
+utils/fix_data_dir.sh data/lre07_four
+504242 / 400
+
+--- VLTN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in train_four lre07_four; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 10 --cmd "$train_cmd" \
+       data/${t}_novtln exp_6/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_6/make_mfcc $mfccdir
+ done
+
+
+utils/fix_data_dir.sh data/train_four_novtln
+utils/fix_data_dir.sh data/lre07_four_novtln
+504240 / 400
+
+utils/subset_data_dir.sh data/train_four_novtln 5000 data/train_four_5k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 4G" data/train_four_5k_novtln 256 \
+    exp_6/diag_ubm_vtln
+. ./cmd.sh;
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 20 --cmd "$train_cmd" \
+     data/train_four_5k_novtln exp_6/diag_ubm_vtln exp_6/vtln
+
+. ./cmd.sh;
+for t in lre07_four train_four; do
+    lid/get_vtln_warps.sh --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_6/vtln exp_6/${t}_warps
+    cp exp_6/${t}_warps/utt2warp data/$t/
+done
+
+到这
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_four
+utils/filter_scp.pl data/train_four/utt2warp data/train_four/utt2spk > data/train_four/utt2spk_tmp
+cp data/train_four/utt2spk_tmp data/train_four/utt2spk
+utils/fix_data_dir.sh data/train_four
+9300
+
+cp -r data/train_four data/train_four_dnn
+cp -r data/lre07_four data/lre07_four_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 20 --cmd "$train_cmd" \
+  data/train_four exp_6/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 20 --cmd "$train_cmd" \
+  data/lre07_four exp_6/make_mfcc $mfccdir
+
+
+# Extract DNN features
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/train_four_dnn exp_6/make_mfcc $mfccdir
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/lre07_four_dnn exp_6/make_mfcc $mfccdir
+
+for name in lre07_four_dnn train_four_dnn lre07_four train_four; do
+  utils/fix_data_dir.sh data/${name}
+done
+400 / 9300
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_four \
+  exp_6/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_four \
+  exp_6/make_vad $vaddir
+
+
+for name in train_four lre07_four; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+
+
+utils/subset_data_dir.sh data/train_four 9000 data/train_four_9k
+utils/fix_data_dir.sh data/train_four_9k
+utils/subset_data_dir.sh data/train_four_dnn 9000 data/train_four_dnn_9k
+utils/fix_data_dir.sh data/train_four_dnn_9k
+
+
+. ./cmd.sh;
+nnet=exp_6/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=3,4,5,6 lid/init_full_ubm_from_dnn.sh --nj 4 --cmd "$train_cmd --mem 6G" \
+  data/train_four_9k \
+  data/train_four_dnn_9k $nnet exp_6/full_ubm
+
+到这
+--- i-vector ---
+
+lid/train_ivector_extractor_dnn.sh \
+  --cmd "run.pl --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 2 exp_6/full_ubm/final.ubm exp_6/nnet2_online/nnet_ms_a/final.mdl \
+  data/train_four \
+  data/train_four_dnn \
+  exp_6/extractor_dnn > train_ivector.log2.2 &
+
+lid/train_ivector_extractor_dnn.sh --cmd run.pl --mem 30G --nnet-job-opt --mem 4G --min-post 0.015 --ivector-dim 600 --num-iters 5 --nj 8 exp_6/full_ubm/final.ubm exp_6/nnet2_online/nnet_ms_a/final.mdl data/train_four data/train_four_dnn exp_6/extractor_dnn
+Accumulating stats (pass 3)
+
+
+lid/train_ivector_extractor_dnn.sh --cmd run.pl --mem 30G --nnet-job-opt --mem 4G --min-post 0.015 --ivector-dim 600 --num-iters 5 --nj 2 exp_6/full_ubm/final.ubm exp_6/nnet2_online/nnet_ms_a/final.mdl data/train_four data/train_four_dnn exp_6/extractor_dnn
+Accumulating stats (pass 3)
+
+CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 nice -19 lid/train_ivector_extractor_dnn.sh \
+  --cmd "run.pl --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 6 exp_6/full_ubm/final.ubm exp_6/nnet2_online/nnet_ms_a/final.mdl \
+  data/train_four \
+  data/train_four_dnn \
+  exp_6/extractor_dnn
+
+cp -r data/train_four data/train_four_lr
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_four/utt2lang) \
+  > data/train_four_lr/utt2lang
+utils/fix_data_dir.sh data/train_four_lr
+2258
+
+awk '{print $2}' data/train_four_lr/utt2lang | sort | uniq -c | sort -nr
+   1813 us
+    445 uk
+
+cp -r data/train_four_dnn data/train_four_lr_dnn
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_four_dnn/utt2lang) \
+  > data/train_four_lr_dnn/utt2lang
+utils/fix_data_dir.sh data/train_four_lr_dnn
+2258
+
+awk '{print $2}' data/train_four_lr_dnn/utt2lang | sort | uniq -c | sort -nr
+   1813 us
+    445 uk
+
+. ./cmd.sh;
+nnet=exp_6/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_6/extractor_dnn \
+  $nnet \
+  data/train_four_lr \
+  data/train_four_lr_dnn \
+  exp_6/ivectors_train_four
+
+. ./cmd.sh;
+nnet=exp_6/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_6/extractor_dnn \
+  $nnet \
+  data/lre07_four \
+  data/lre07_four_dnn \
+  exp_6/ivectors_lre07_four
+
+
+lid/run_logistic_regression_edit.sh train_four lre07_four exp_6

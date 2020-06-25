@@ -1,0 +1,303 @@
+data:
+train_youtube_v2
+test_youtube_v2
+
+. ./cmd.sh
+. ./path.sh
+mfccdir=`pwd`/mfcc
+vaddir=`pwd`/mfcc
+
+nnet_dir=exp_2/xvector_nnet_1a
+
+vim conf/mfcc.conf
+conf=16khz
+
+--- data preparation ---
+modify utterance_id to make it start with lang
+
+def uttaddlang():
+  spk2lang = {}
+  with open('utt2lang', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      spk = utt.split('-')[0]
+      lang = item[1]
+      spk2lang[spk] = lang
+  utt2dir = []
+  utt2spk = []
+  with open('wav.scp.bak', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      dir = item[1]
+      spk = utt.split('-')[0]
+      id = utt.split('-')[1]
+      start = utt.split('-')[2]
+      end = utt.split('-')[3]
+      lang = spk2lang[spk]
+      utt = f'{lang}-{spk}.{id}-{start}-{end}'
+      utt2dir.append(utt + ' ' + dir + '\n')
+      utt2spk.append(utt + ' ' + lang + '\n')
+  with open('wav.scp', 'w') as f:
+    f.writelines(line for line in utt2dir)
+  with open('utt2spk', 'w') as f:
+    f.writelines(line for line in utt2spk)
+
+trials: https://groups.google.com/forum/#!topic/kaldi-help/38r7FzlzovE
+def trials():
+  trials = []
+  with open('utt2spk', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      spk = item[1]
+      if spk == 'us':
+        trials.append('us' + ' ' + utt + ' ' + 'target' + '\n')
+        trials.append('uk' + ' ' + utt + ' ' + 'nontarget' + '\n')
+      else:
+        trials.append('us' + ' ' + utt + ' ' + 'nontarget' + '\n')
+        trials.append('uk' + ' ' + utt + ' ' + 'target' + '\n')
+  with open('trials', 'w') as f:
+    f.writelines(line for line in trials)
+
+
+mfccdir=`pwd`/mfcc;
+if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $mfccdir/storage ]; then
+  utils/create_split_dir.pl \
+  /exp_2ort/b{14,15,16,17}/$USER/kaldi-data/egs/sre16/v2/xvector-$(date +'%m_%d_%H_%M')/mfccs/storage $mfccdir/storage
+fi
+
+for name in train_youtube_v2 test_youtube_v2; do
+    utils/utt2spk_to_spk2utt.pl data/${name}/utt2spk > data/${name}/spk2utt
+    utils/fix_data_dir.sh data/${name}
+  done
+
+. ./cmd.sh;
+for name in train_youtube_v2 test_youtube_v2; do
+    steps/make_mfcc.sh --write-utt2num-frames true --mfcc-config conf/mfcc.conf --nj 2 --cmd "$train_cmd" \
+      data/${name} exp_2/make_mfcc $mfccdir
+    utils/fix_data_dir.sh data/${name}
+    sid/compute_vad_decision.sh --nj 2 --cmd "$train_cmd" \
+      data/${name} exp_2/make_vad $vaddir
+    utils/fix_data_dir.sh data/${name}
+  done
+
+frame_shift=0.01;
+awk -v frame_shift=$frame_shift '{print $1, $2*frame_shift;}' data/train_youtube_v2/utt2num_frames > data/train_youtube_v2/reco2dur
+
+
+--- data aug ---
+# aug by reverbing (not adding any noises here)
+rvb_opts=();
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/smallroom/rir_list");
+rvb_opts+=(--rir-set-parameters "0.5, RIRS_NOISES/simulated_rirs/mediumroom/rir_list");
+steps/data/reverberate_data_dir.py \
+	"${rvb_opts[@]}" \
+	--speech-rvb-probability 1 \
+	--pointsource-noise-addition-probability 0 \
+	--isotropic-noise-addition-probability 0 \
+	--num-replications 1 \
+	--source-sampling-rate 16000 \
+	data/train_youtube_v2 data/train_youtube_v2_reverb
+
+Number of RIRs is 40000
+
+
+cp data/train_youtube_v2/vad.scp data/train_youtube_v2_reverb/
+utils/copy_data_dir.sh --utt-suffix "-reverb" data/train_youtube_v2_reverb data/train_youtube_v2_reverb.new
+rm -rf data/train_youtube_v2_reverb
+mv data/train_youtube_v2_reverb.new data/train_youtube_v2_reverb
+
+
+# Augment with musan
+steps/data/make_musan.sh --sampling-rate 16000 /data/pytong/wav/musan data
+for name in speech noise music; do
+    utils/data/get_utt2dur.sh data/musan_${name}
+    mv data/musan_${name}/utt2dur data/musan_${name}/reco2dur
+  done
+
+steps/data/augment_data_dir.py --utt-suffix "noise" --fg-interval 1 --fg-snrs "15:10:5:0" --fg-noise-dir "data/musan_noise" data/train_youtube_v2 data/train_youtube_v2_noise
+
+steps/data/augment_data_dir.py --utt-suffix "music" --bg-snrs "15:10:8:5" --num-bg-noises "1" --bg-noise-dir "data/musan_music" data/train_youtube_v2 data/train_youtube_v2_music
+
+steps/data/augment_data_dir.py --utt-suffix "babble" --bg-snrs "20:17:15:13" --num-bg-noises "3:4:5:6:7" --bg-noise-dir "data/musan_speech" data/train_youtube_v2 data/train_youtube_v2_babble
+
+
+# Combine reverb, noise, music, and babble into one directory.
+utils/combine_data.sh data/train_youtube_v2_aug data/train_youtube_v2_reverb data/train_youtube_v2_noise data/train_youtube_v2_music data/train_youtube_v2_babble
+
+
+utils/subset_data_dir.sh data/train_youtube_v2_aug 12000 data/train_youtube_v2_aug_12k
+utils/fix_data_dir.sh data/train_youtube_v2_aug_12k
+
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/train_youtube_v2_aug_12k exp_2/make_mfcc $mfccdir
+
+utils/combine_data.sh data/train_youtube_v2_combined data/train_youtube_v2_aug_12k data/train_youtube_v2
+
+
+
+--- xvector ---
+
+
+. ./cmd.sh;
+local/nnet3/xvector/prepare_feats_for_egs.sh.bak --nj 2 --cmd "$train_cmd" \
+    data/train_youtube_v2_combined data/train_youtube_v2_combined_no_sil exp_2/train_youtube_v2_combined_no_sil
+utils/fix_data_dir.sh data/train_youtube_v2_combined_no_sil
+17166
+
+
+# restrict utt len
+mv data/train_youtube_v2_combined_no_sil/utt2num_frames data/train_youtube_v2_combined_no_sil/utt2num_frames.bak
+
+min_len=500;
+awk -v min_len=${min_len} '{print $1, $2}' data/train_youtube_v2_combined_no_sil/utt2num_frames.bak > data/train_youtube_v2_combined_no_sil/utt2num_frames
+
+utils/filter_scp.pl data/train_youtube_v2_combined_no_sil/utt2num_frames data/train_youtube_v2_combined_no_sil/utt2spk > data/train_youtube_v2_combined_no_sil/utt2spk.new
+mv data/train_youtube_v2_combined_no_sil/utt2spk.new data/train_youtube_v2_combined_no_sil/utt2spk
+utils/fix_data_dir.sh data/train_youtube_v2_combined_no_sil
+17166 because youtube data all = 30 seconds > 500
+
+# delete utterance whose spk utt number < 8
+awk '{print $1, NF-1}' data/train_youtube_v2_combined_no_sil/spk2utt > data/train_youtube_v2_combined_no_sil/spk2num
+uk 9244
+us 7922
+
+min_num_utts=8;
+awk -v min_num_utts=${min_num_utts} '{print $1, $2}' data/train_youtube_v2_combined_no_sil/spk2num | utils/filter_scp.pl - data/train_youtube_v2_combined_no_sil/spk2utt > data/train_youtube_v2_combined_no_sil/spk2utt.new
+
+mv data/train_youtube_v2_combined_no_sil/spk2utt.new data/train_youtube_v2_combined_no_sil/spk2utt
+utils/spk2utt_to_utt2spk.pl data/train_youtube_v2_combined_no_sil/spk2utt > data/train_youtube_v2_combined_no_sil/utt2spk
+
+utils/filter_scp.pl data/train_youtube_v2_combined_no_sil/utt2spk data/train_youtube_v2_combined_no_sil/utt2num_frames > data/train_youtube_v2_combined_no_sil/utt2num_frames.new
+mv data/train_youtube_v2_combined_no_sil/utt2num_frames.new data/train_youtube_v2_combined_no_sil/utt2num_frames
+utils/fix_data_dir.sh data/train_youtube_v2_combined_no_sil
+
+
+nnet_dir=exp_2/xvector_nnet_1a.3;
+CUDA_VISIBLE_DEVICES=4,5 local/nnet3/xvector/run_xvector.sh --stage 0 --train-stage -1 \
+  --data data/train_youtube_v2_combined_no_sil --nnet-dir $nnet_dir \
+  --egs-dir $nnet_dir/egs
+
+bug:
+Failed to write matrix to stream
+reduce batchsize
+
+
+. ./cmd.sh;
+nnet_dir=exp_2/xvector_nnet_1a;
+CUDA_VISIBLE_DEVICES=4,5 sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 12G" --nj 2 \
+    $nnet_dir data/train_youtube_v2_combined \
+    exp_2/xvectors_train_youtube_v2_combined.3
+
+. ./cmd.sh;
+nnet_dir=exp_2/xvector_nnet_1a;
+CUDA_VISIBLE_DEVICES=6,7 sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 6G" --nj 2 \
+    $nnet_dir data/test_youtube_v2 \
+    exp_2/xvectors_test_youtube_v2.3
+
+
+. ./path.sh
+. ./cmd.sh;
+$train_cmd exp_2/xvectors_train_youtube_v2_combined/log/compute_mean.log \
+  ivector-mean scp:exp_2/xvectors_train_youtube_v2_combined/xvector.scp \
+  exp_2/xvectors_train_youtube_v2_combined/mean.vec || exit 1;
+
+
+--- LDA PLDA ---
+
+# uses LDA to decrease the dimensionality prior to PLDA
+lda_dim=150;
+. ./cmd.sh;
+$train_cmd exp_2/xvectors_train_youtube_v2_combined/log/lda.log \
+  ivector-compute-lda --total-covariance-factor=0.0 --dim=$lda_dim \
+  "ark:ivector-subtract-global-mean scp:exp_2/xvectors_train_youtube_v2_combined/xvector.scp ark:- |" \
+  ark:data/train_youtube_v2_combined/utt2spk exp_2/xvectors_train_youtube_v2_combined/transform.mat || exit 1;
+
+# Train an out-of-domain PLDA model
+. ./cmd.sh;
+$train_cmd exp_2/xvectors_train_youtube_v2_combined/log/plda.log \
+  ivector-compute-plda ark:data/train_youtube_v2_combined/spk2utt \
+  "ark:ivector-subtract-global-mean scp:exp_2/xvectors_train_youtube_v2_combined/xvector.scp ark:- | transform-vec exp_2/xvectors_train_youtube_v2_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:-  ark:- |" \
+  exp_2/xvectors_train_youtube_v2_combined/plda || exit 1;
+
+
+# use test do normalization/centering for every class
+. ./cmd.sh;
+$train_cmd exp_2/scores/log/sre16_eval_scoring.log \
+    ivector-plda-scoring --normalize-length=true \
+    --num-utts=ark:exp_2/xvectors_test_youtube_v2/num_utts.ark \
+    "ivector-copy-plda --smoothing=0.0 exp_2/xvectors_train_youtube_v2_combined/plda - |" \
+    "ark:ivector-mean ark:data/test_youtube_v2/spk2utt scp:exp_2/xvectors_test_youtube_v2/xvector.scp ark:- | ivector-subtract-global-mean exp_2/xvectors_train_youtube_v2_combined/mean.vec ark:- ark:- | transform-vec exp_2/xvectors_train_youtube_v2_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
+    "ark:ivector-subtract-global-mean exp_2/xvectors_train_youtube_v2_combined/mean.vec scp:exp_2/xvectors_test_youtube_v2/xvector.scp ark:- | transform-vec exp_2/xvectors_train_youtube_v2_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
+    "cat data/test_youtube_v2/trials | cut -d\  --fields=1,2 |" exp_2/scores/sre16_eval_scores || exit 1;
+
+
+# use train do normalization/centering for every class
+. ./cmd.sh;
+$train_cmd exp_2/scores/log/sre16_eval_scoring.log \
+    ivector-plda-scoring --normalize-length=true \
+    --num-utts=ark:exp_2/xvectors_test_youtube_v2/num_utts.ark \
+    "ivector-copy-plda --smoothing=0.0 exp_2/xvectors_train_youtube_v2_combined/plda - |" \
+    "ark:ivector-mean ark:data/train_youtube_v2_combined/spk2utt scp:exp_2/xvectors_train_youtube_v2_combined/xvector.scp ark:- | ivector-subtract-global-mean exp_2/xvectors_train_youtube_v2_combined/mean.vec ark:- ark:- | transform-vec exp_2/xvectors_train_youtube_v2_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
+    "ark:ivector-subtract-global-mean exp_2/xvectors_train_youtube_v2_combined/mean.vec scp:exp_2/xvectors_test_youtube_v2/xvector.scp ark:- | transform-vec exp_2/xvectors_train_youtube_v2_combined/transform.mat ark:- ark:- | ivector-normalize-length ark:- ark:- |" \
+    "cat data/test_youtube_v2/trials | cut -d\  --fields=1,2 |" exp_2/scores/sre16_eval_scores || exit 1;
+
+  
+paste data/test_youtube_v2/trials exp_2/scores/sre16_eval_scores | awk '{print $6,$3}' > test
+cat test | compute-eer - 2>/dev/null
+17.88
+
+paste data/train_youtube_v2_combined/trials exp_2/scores/sre16_eval_scores | awk '{print $6,$3}' > train
+cat train | compute-eer - 2>/dev/null
+15.76
+
+
+# set different threshold
+def wer(threshold):
+  correct = 0
+  with open('test.2', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      score = item[0]
+      target = item[1]
+      if float(score) < threshold:
+        pred = 'nontarget'
+      else: 
+        pred = 'target'
+      if pred == target:
+        correct += 1
+  return correct
+
+
+--- lr ---
+
+lid/run_logistic_regression_xvector.sh train_youtube_v2_combined test_youtube_v2 exp_2
+compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/test_youtube_v2/utt2spk)   ark:exp_2/xvectors_test_youtube_v2/output
+22.32
+
+
+--- gmm ---
+
+../../../src/bin/copy-vector ark:exp_2/xvectors_train_youtube_v2_combined.3/xvector.1.ark  ark,t:xvectors_train.3/xvector.1.txt
+../../../src/bin/copy-vector ark:exp_2/xvectors_train_youtube_v2_combined.3/xvector.2.ark  ark,t:xvectors_train.3/xvector.2.txt
+
+../../../src/bin/copy-vector ark:exp_2/xvectors_test_youtube_v2.3/xvector.1.ark  ark,t:xvectors_test.3/xvector.1.txt
+../../../src/bin/copy-vector ark:exp_2/xvectors_test_youtube_v2.3/xvector.2.ark  ark,t:xvectors_test.3/xvector.2.txt
+
+epoch=3
+0.944
+0.8447937131630648
+
+
+epoch=6
+0.9481533263427706
+0.8506876227897839
+
+epoch=10
+0.9481533263427706
+0.8506876227897839

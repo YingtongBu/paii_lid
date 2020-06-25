@@ -1,0 +1,237 @@
+
+lre07_itg_filtered
+
+
+comvoc_filtered：所有可以作为nn的utt的国家（分开作为每一类）/us/uk ['africa', 'india', 'hongkong', 'singapore', 'philippines', 'australia', 'bermuda', 'newzealand', 'malaysia', 'southatlantic', uk', 'us']
+voxceleb_filtered：所有可以作为nn的utt的国家（分开作为每一类）/us/uk ['china', 'india', 'pakistan', 'singapore', 'france', 'iran', 'trinidad', 'sweden', 'russia', 'spain', uk', 'us']
+train_itg_filtered：只有['africa', 'india', 'philippines', 'singapore', 'australia', 'newzealand', 'china', 'nn', 'us', 'uk']
+
+cd train_filtered
+cat ../voxceleb_filtered/wav.scp ../comvoc_filtered/wav.scp ../train_itg_filtered/wav.scp > wav.scp
+cat ../voxceleb_filtered/utt2spk ../comvoc_filtered/utt2spk ../train_itg_filtered/utt2spk > utt2spk
+cat ../voxceleb_filtered/utt2lang.filtered ../comvoc_filtered/utt2lang ../train_itg_filtered/utt2lang > utt2lang
+
+# ['africa', 'india', 'philippines', 'singapore', 'australia', 'newzealand', 'china', 'nn', 'us', 'uk']
+def filter_ten():
+  utt2lang = []
+  with open('utt2lang.filtered', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      if lang == 'hongkong':
+        lang = 'china'
+      if lang not in ['africa', 'india', 'philippines', 'singapore', 'australia',
+                  'newzealand', 'china', 'nn', 'us', 'uk']:
+        lang = 'nn'
+      utt2lang.append(utt + ' ' + lang + '\n')
+  with open('utt2lang', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+train_filtered：只有['africa', 'india', 'philippines', 'singapore', 'australia', 'newzealand', 'china', 'nn', 'us', 'uk']
+
+utils/utt2spk_to_spk2utt.pl data/train_filtered/utt2spk > data/train_filtered/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_itg_filtered/utt2spk > data/lre07_itg_filtered/spk2utt
+
+utils/fix_data_dir.sh data/train_filtered
+utils/fix_data_dir.sh data/lre07_itg_filtered
+498543 out of 561625 / 400
+
+utils/subset_data_dir.sh --per-spk data/train_filtered 10 data/train_filtered_subset
+75262
+
+
+sudo docker run --runtime=nvidia -it --rm -v /data:/data -w /data  b4879c167fc1 bash
+
+
+awk '{print $2}' data/train_filtered_subset/utt2lang | sort | uniq -c | sort -nr
+  44371 us
+  13725 uk
+   8314 india
+   3563 australia
+   1803 nn
+   1344 africa
+    837 newzealand
+    734 philippines
+    299 singapore
+    272 china
+
+
+
+
+--- VLTN ---
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in train_filtered_subset lre07_itg_filtered; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 20 --cmd "$train_cmd" \
+       data/${t}_novtln exp_7/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_7/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/train_filtered_subset_novtln
+utils/fix_data_dir.sh data/lre07_itg_filtered_novtln
+
+utils/fix_data_dir.sh data/train_filtered_subset
+utils/fix_data_dir.sh data/lre07_itg_filtered
+75262 / 400
+
+. ./cmd.sh;
+for t in lre07_itg_filtered train_filtered_subset; do
+    lid/get_vtln_warps.sh --nj 30 --cmd "$train_cmd" \
+       data/${t}_novtln exp_5/vtln exp_7/${t}_warps
+    cp exp_7/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_filtered_subset
+utils/filter_scp.pl data/train_filtered_subset/utt2warp data/train_filtered_subset/utt2spk > data/train_filtered_subset/utt2spk_tmp
+cp data/train_filtered_subset/utt2spk_tmp data/train_filtered_subset/utt2spk
+utils/fix_data_dir.sh data/train_filtered_subset
+75260
+
+cp -r data/train_filtered_subset data/train_filtered_subset_dnn
+cp -r data/lre07_itg_filtered data/lre07_itg_filtered_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 30 --cmd "$train_cmd" \
+  data/train_filtered_subset exp_7/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 30 --cmd "$train_cmd" \
+  data/lre07_itg_filtered exp_7/make_mfcc $mfccdir
+
+# Extract DNN features
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 30 --cmd "$train_cmd" \
+  data/train_filtered_subset_dnn exp_7/make_mfcc $mfccdir
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 30 --cmd "$train_cmd" \
+  data/lre07_itg_filtered_dnn exp_7/make_mfcc $mfccdir
+
+for name in lre07_itg_filtered_dnn train_filtered_subset_dnn lre07_itg_filtered train_filtered_subset; do
+  utils/fix_data_dir.sh data/${name}
+done
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 10 --cmd "$train_cmd" data/train_filtered_subset \
+  exp_7/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 10 --cmd "$train_cmd" data/lre07_itg_filtered \
+  exp_7/make_vad $vaddir
+
+
+for name in train_filtered_subset lre07_itg_filtered; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+这里直接用exp_5
+utils/subset_data_dir.sh data/train_filtered_subset 32000 data/train_filtered_subset_32k
+utils/fix_data_dir.sh data/train_filtered_subset_32k
+utils/subset_data_dir.sh data/train_filtered_subset_dnn 32000 data/train_filtered_subset_dnn_32k
+utils/fix_data_dir.sh data/train_filtered_subset_dnn_32k
+
+
+. ./cmd.sh;
+nnet=exp_7/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=3,4,5,6 lid/init_full_ubm_from_dnn.sh --nj 4 --cmd "$train_cmd --mem 6G" \
+  data/train_filtered_subset_9k \
+  data/train_filtered_subset_dnn_9k $nnet exp_7/full_ubm
+
+
+--- i-vector ---
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/train_ivector_extractor_dnn.sh \
+  --cmd "run.pl --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 8 exp_5/full_ubm/final.ubm exp_7/nnet2_online/nnet_ms_a/final.mdl \
+  data/train_filtered_subset \
+  data/train_filtered_subset_dnn \
+  exp_7/extractor_dnn
+
+lid/train_ivector_extractor_dnn.sh.tmp \
+  --cmd "run.pl --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 8 exp_5/full_ubm/final.ubm exp_7/nnet2_online/nnet_ms_a/final.mdl \
+  data/train_filtered_subset \
+  data/train_filtered_subset_dnn \
+  exp_7/extractor_dnn
+
+--- lr ---
+
+vim local/general_lr_closed_set_langs.txt
+us 0
+uk 1
+nn 2
+africa 3
+india 4
+philippines 5
+singapore 6
+australia 7
+newzealand 8
+china 9
+
+
+cp -r data/train_filtered_subset data/train_filtered_subset_lr
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_filtered_subset/utt2lang) \
+  > data/train_filtered_subset_lr/utt2lang
+utils/fix_data_dir.sh data/train_filtered_subset_lr
+75260
+
+awk '{print $2}' data/train_filtered_subset_lr/utt2lang | sort | uniq -c | sort -nr
+
+cp -r data/train_filtered_subset_dnn data/train_filtered_subset_lr_dnn
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_filtered_subset_dnn/utt2lang) \
+  > data/train_filtered_subset_lr_dnn/utt2lang
+utils/fix_data_dir.sh data/train_filtered_subset_lr_dnn
+
+
+awk '{print $2}' data/train_filtered_subset_lr_dnn/utt2lang | sort | uniq -c | sort -nr
+
+
+. ./cmd.sh;
+nnet=exp_7/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_7/extractor_dnn \
+  $nnet \
+  data/train_filtered_subset_lr \
+  data/train_filtered_subset_lr_dnn \
+  exp_7/ivectors_train_filtered_subset
+
+ivectors_train被改了只有us/uk/india的
+
+. ./cmd.sh;
+nnet=exp_7/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=1,2,3,4 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_7/extractor_dnn \
+  $nnet \
+  data/lre07_itg_filtered \
+  data/lre07_itg_filtered_dnn \
+  exp_7/ivectors_lre07_itg_filtered
+
+
+lid/run_logistic_regression_edit.sh train_filtered_subset lre07_itg_filtered exp_7

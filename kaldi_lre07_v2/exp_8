@@ -1,0 +1,45 @@
+train_filtered_nn
+lre07_itg_filtered_nn
+
+cp -r train_filtered_subset train_filtered_nn
+cp -r lre07_itg_filtered/ lre07_itg_filtered_nn
+cd train_filtered_nn
+mv utt2lang utt2lang.bak
+python
+def three_classes():
+  utt2lang = []
+  with open('utt2lang.bak', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      if lang not in ['uk', 'us']:
+        lang = 'nn'
+      utt2lang.append(utt + ' ' + lang + '\n')
+  with open(f'utt2lang', 'w') as f:
+    f.writelines(line for line in utt2lang)
+
+vim local/general_lr_closed_set_langs.txt
+us 0
+uk 1
+nn 2
+
+cd data/train_filtered_subset_lr
+mv utt2lang utt2lang.multiple
+ln -s utt2lang.nn utt2lang
+cd ../..
+
+cd data/lre07_itg_filtered
+mv utt2lang utt2lang.multiple
+ln -s utt2lang.nn utt2lang
+cd ../..
+
+lid/run_logistic_regression_edit.sh train_filtered_subset lre07_itg_filtered exp_7
+
+24.75%
+
+sudo cp exp_7/ivectors_lre07_itg_filtered/output output.8
+
+nn_wer('utt2lang.nn', 'output.8')
+0.1333333333333333
+

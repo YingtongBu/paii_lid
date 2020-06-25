@@ -11,7 +11,7 @@ utils/utt2spk_to_spk2utt.pl data/lre07_youtube/utt2spk > data/lre07_youtube/spk2
 
 utils/fix_data_dir.sh data/train_youtube
 utils/fix_data_dir.sh data/lre07_youtube
-5159 / 510
+5189 / 510
 
 --- VLTN ---
 
@@ -31,9 +31,9 @@ utils/fix_data_dir.sh data/lre07_youtube_novtln
 utils/subset_data_dir.sh data/train_youtube_novtln 4000 data/train_youtube_4k_novtln
 
 . ./cmd.sh;
-sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_youtube_4k_novtln 256 \
+sudo sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_youtube_4k_novtln 256 \
     exp_4/diag_ubm_vtln
-lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+sudo lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
      data/train_youtube_4k_novtln exp_4/diag_ubm_vtln exp_4/vtln
 
 . ./cmd.sh;

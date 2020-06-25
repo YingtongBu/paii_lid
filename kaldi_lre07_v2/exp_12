@@ -1,0 +1,169 @@
+-------------------------------------------------
+
+-------------------------------------------------
+vim local/general_lr_closed_set_langs.txt
+
+awk '{print $2}' data/train_relabel0609_correct0610_v2/utt2lang | sort | uniq -c | sort -nr
+   1683 ok
+    664 nn
+
+utils/utt2spk_to_spk2utt.pl data/train_relabel0609_correct0610_v2/utt2spk > data/train_relabel0609_correct0610_v2/spk2utt
+utils/utt2spk_to_spk2utt.pl data/test_relabel0609_correct0610_v2/utt2spk > data/test_relabel0609_correct0610_v2/spk2utt
+
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2
+utils/fix_data_dir.sh data/test_relabel0609_correct0610_v2
+2347 / 446
+
+--- VLTN ---
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+for t in train_relabel0609_correct0610_v2 test_relabel0609_correct0610_v2; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+       data/${t}_novtln exp_12/make_mfcc $mfccdir
+    lid/compute_vad_decision.sh data/${t}_novtln exp_12/make_mfcc $mfccdir
+ done
+
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2_novtln
+utils/fix_data_dir.sh data/test_relabel0609_correct0610_v2_novtln
+
+utils/subset_data_dir.sh data/train_relabel0609_correct0610_v2_novtln 2000 data/train_relabel0609_correct0610_v2_2k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 4G" data/train_relabel0609_correct0610_v2_2k_novtln 256 \
+    exp_12/diag_ubm_vtln
+. ./cmd.sh;
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 20 --cmd "$train_cmd" \
+     data/train_relabel0609_correct0610_v2_2k_novtln exp_12/diag_ubm_vtln exp_12/vtln
+
+. ./cmd.sh;
+for t in test_relabel0609_correct0610_v2 train_relabel0609_correct0610_v2; do
+    lid/get_vtln_warps.sh --nj 10 --cmd "$train_cmd" \
+       data/${t}_novtln exp_12/vtln exp_12/${t}_warps
+    cp exp_12/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2
+utils/filter_scp.pl data/train_relabel0609_correct0610_v2/utt2warp data/train_relabel0609_correct0610_v2/utt2spk > data/train_relabel0609_correct0610_v2/utt2spk_tmp
+cp data/train_relabel0609_correct0610_v2/utt2spk_tmp data/train_relabel0609_correct0610_v2/utt2spk
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2
+
+cp -r data/train_relabel0609_correct0610_v2 data/train_relabel0609_correct0610_v2_dnn
+cp -r data/test_relabel0609_correct0610_v2 data/test_relabel0609_correct0610_v2_dnn
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 20 --cmd "$train_cmd" \
+  data/train_relabel0609_correct0610_v2 exp_12/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 20 --cmd "$train_cmd" \
+  data/test_relabel0609_correct0610_v2 exp_12/make_mfcc $mfccdir
+
+
+# Extract DNN features
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/train_relabel0609_correct0610_v2_dnn exp_12/make_mfcc $mfccdir
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc_hires.conf --nj 12 --cmd "$train_cmd" \
+  data/test_relabel0609_correct0610_v2_dnn exp_12/make_mfcc $mfccdir
+
+for name in test_relabel0609_correct0610_v2_dnn train_relabel0609_correct0610_v2_dnn test_relabel0609_correct0610_v2 train_relabel0609_correct0610_v2; do
+  utils/fix_data_dir.sh data/${name}
+done
+446 / 2347
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_relabel0609_correct0610_v2 \
+  exp_12/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/test_relabel0609_correct0610_v2 \
+  exp_12/make_vad $vaddir
+
+
+for name in train_relabel0609_correct0610_v2 test_relabel0609_correct0610_v2; do
+  cp data/${name}/vad.scp data/${name}_dnn/vad.scp
+  cp data/${name}/utt2spk data/${name}_dnn/utt2spk
+  cp data/${name}/spk2utt data/${name}_dnn/spk2utt
+  utils/fix_data_dir.sh data/${name}
+  utils/fix_data_dir.sh data/${name}_dnn
+done
+
+
+--- ubm ---
+
+
+utils/subset_data_dir.sh data/train_relabel0609_correct0610_v2 2000 data/train_relabel0609_correct0610_v2_2k
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2_2k
+utils/subset_data_dir.sh data/train_relabel0609_correct0610_v2_dnn 2000 data/train_relabel0609_correct0610_v2_dnn_2k
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2_dnn_2k
+
+. ./cmd.sh;
+nnet=exp_12/nnet2_online/nnet_ms_a/final.mdl;
+lid/init_full_ubm_from_dnn.sh --nj 4 --cmd "$train_cmd --mem 6G" \
+  data/train_relabel0609_correct0610_v2_2k \
+  data/train_relabel0609_correct0610_v2_dnn_2k $nnet exp_12/full_ubm
+
+
+--- i-vector ---
+
+到这
+lid/train_ivector_extractor_dnn.sh \
+  --cmd "run.pl --mem 30G" --nnet-job-opt "--mem 4G" \
+  --min-post 0.015 \
+  --ivector-dim 600 \
+  --num-iters 5 \
+  --nj 4 exp_12/full_ubm/final.ubm exp_12/nnet2_online/nnet_ms_a/final.mdl \
+  data/train_relabel0609_correct0610_v2 \
+  data/train_relabel0609_correct0610_v2_dnn \
+  exp_12/extractor_dnn
+
+
+cp -r data/train_relabel0609_correct0610_v2 data/train_relabel0609_correct0610_v2_lr
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_relabel0609_correct0610_v2/utt2lang) \
+  > data/train_relabel0609_correct0610_v2_lr/utt2lang
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2_lr
+9300
+
+cp -r data/train_relabel0609_correct0610_v2_dnn data/train_relabel0609_correct0610_v2_lr_dnn
+languages=local/general_lr_closed_set_langs.txt;
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_relabel0609_correct0610_v2_dnn/utt2lang) \
+  > data/train_relabel0609_correct0610_v2_lr_dnn/utt2lang
+utils/fix_data_dir.sh data/train_relabel0609_correct0610_v2_lr_dnn
+
+
+. ./cmd.sh;
+nnet=exp_12/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_12/extractor_dnn \
+  $nnet \
+  data/train_relabel0609_correct0610_v2_lr \
+  data/train_relabel0609_correct0610_v2_lr_dnn \
+  exp_12/ivectors_train_relabel0609_correct0610_v2
+
+. ./cmd.sh;
+nnet=exp_12/nnet2_online/nnet_ms_a/final.mdl;
+CUDA_VISIBLE_DEVICES=4,5,6,7 nice -19 lid/extract_ivectors_dnn.sh.tmp --cmd "$train_cmd --mem 30G" \
+  --nj 4 --num-threads 5 \
+  exp_12/extractor_dnn \
+  $nnet \
+  data/test_relabel0609_correct0610_v2 \
+  data/test_relabel0609_correct0610_v2_dnn \
+  exp_12/ivectors_test_relabel0609_correct0610_v2
+
+lid/run_logistic_regression_edit.sh train_relabel0609_correct0610_v2 test_relabel0609_correct0610_v2 exp_12
+34.78%

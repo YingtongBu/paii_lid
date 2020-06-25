@@ -1,0 +1,150 @@
+
+-------------------------------------------------
+train_til0603_relabel0607
+-------------------------------------------------
+
+
+*** Fix data ***
+awk '{print $2}' data/train_til0603_relabel0607/utt2lang.6 | sort | uniq -c | sort -nr
+   1724 us
+    676 nnl
+    655 nnm
+    614 uk
+    613 nnn
+    301 nnh
+     31 nn
+     29 ok
+
+
+utils/utt2spk_to_spk2utt.pl data/train_til0603_relabel0607/utt2spk > data/train_til0603_relabel0607/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_til0603_relabel0607/utt2spk > data/lre07_til0603_relabel0607/spk2utt
+
+utils/fix_data_dir.sh data/train_til0603_relabel0607
+utils/fix_data_dir.sh data/lre07_til0603_relabel0607
+4643
+502
+
+--- VTLN ---
+
+. ./cmd.sh;
+for t in train_til0603_relabel0607 lre07_til0603_relabel0607; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 12 --cmd "$train_cmd" \
+       data/${t}_novtln exp_27/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_27/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/train_til0603_relabel0607_novtln
+utils/fix_data_dir.sh data/lre07_til0603_relabel0607_novtln
+
+utils/subset_data_dir.sh data/train_til0603_relabel0607_novtln 3000 data/train_til0603_relabel0607_3k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd" data/train_til0603_relabel0607_3k_novtln 256 \
+    exp_27/diag_ubm_vtln
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 30 --cmd "$train_cmd" \
+     data/train_til0603_relabel0607_3k_novtln exp_27/diag_ubm_vtln exp_27/vtln
+
+. ./cmd.sh;
+for t in lre07_til0603_relabel0607 train_til0603_relabel0607; do
+    lid/get_vtln_warps.sh --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp_27/vtln exp_27/${t}_warps
+    cp exp_27/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_til0603_relabel0607
+utils/filter_scp.pl data/train_til0603_relabel0607/utt2warp data/train_til0603_relabel0607/utt2spk > data/train_til0603_relabel0607/utt2spk_tmp
+cp data/train_til0603_relabel0607/utt2spk_tmp data/train_til0603_relabel0607/utt2spk
+utils/fix_data_dir.sh data/train_til0603_relabel0607
+4598
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 80 --cmd "$train_cmd" \
+  data/train_til0603_relabel0607 exp_27/make_mfcc $mfccdir
+
+
+utils/fix_data_dir.sh data/lre07_til0603_relabel0607
+utils/filter_scp.pl data/lre07_til0603_relabel0607/utt2warp data/lre07_til0603_relabel0607/utt2spk > data/lre07_til0603_relabel0607/utt2spk_tmp
+cp data/lre07_til0603_relabel0607/utt2spk_tmp data/lre07_til0603_relabel0607/utt2spk
+utils/fix_data_dir.sh data/lre07_til0603_relabel0607
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  data/lre07_til0603_relabel0607 exp_27/make_mfcc $mfccdir
+# number of njobs = number of mfcc file
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_til0603_relabel0607 \
+  exp_27/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_til0603_relabel0607 \
+  exp_27/make_vad $vaddir
+
+utils/subset_data_dir.sh data/train_til0603_relabel0607 1000 data/train_til0603_relabel0607_1k
+utils/subset_data_dir.sh data/train_til0603_relabel0607 3000 data/train_til0603_relabel0607_3k
+
+
+. ./cmd.sh;
+lid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_til0603_relabel0607_1k 2048 exp_27/diag_ubm_2048
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_til0603_relabel0607_3k exp_27/diag_ubm_2048 exp_27/full_ubm_2048_3k
+
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 35G" \
+  data/train_til0603_relabel0607 exp_27/full_ubm_2048_3k exp_27/full_ubm_2048
+
+
+--- i-vector ---
+
+nohup lid/train_ivector_extractor.sh --cmd "run.pl --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_23/full_ubm_2048/final.ubm data/train_til0603_relabel0607 \
+  exp_27/extractor_2048 >> train_til0603_relabel0607_ivector.log27 &
+
+
+cp -r data/train_til0603_relabel0607 data/train_til0603_relabel0607_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_til0603_relabel0607/utt2lang) \
+  > data/train_til0603_relabel0607_lr/utt2lang
+utils/fix_data_dir.sh data/train_til0603_relabel0607_lr
+
+awk '{print $2}' data/train_til0603_relabel0607_lr/utt2lang | sort | uniq -c | sort -nr
+   2346 ok
+    976 nn
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_27/extractor_2048 data/train_til0603_relabel0607_lr exp_27/ivectors_train_til0603_relabel0607 > extract_ivector.log1 &
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 3 \
+   exp_27/extractor_2048 data/lre07_til0603_relabel0607 exp_27/ivectors_lre07_til0603_relabel0607 > extract_ivector.log2 &
+
+
+lid/run_logistic_regression_edit.sh train_til0603_relabel0607 lre07_til0603_relabel0607 exp_27
+
+
+
+cp -r data/train_til0603_relabel0607 data/train_til0603_relabel0607_usennl_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_til0603_relabel0607/utt2lang) \
+  > data/train_til0603_relabel0607_usennl_lr/utt2lang
+utils/fix_data_dir.sh data/train_til0603_relabel0607_usennl_lr
+
+awk '{print $2}' data/train_til0603_relabel0607_usennl_lr/utt2lang | sort | uniq -c | sort -nr
+   3622 ok
+    976 nn
+
+nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 5 \
+   exp_27/extractor_2048 data/train_til0603_relabel0607_usennl_lr exp_27/ivectors_train_til0603_relabel0607_usennl > extract_ivector.log1 &
+
+lid/run_logistic_regression_edit.sh train_til0603_relabel0607_usennl lre07_til0603_relabel0607 exp_27
+
+

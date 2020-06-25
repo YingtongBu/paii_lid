@@ -1,0 +1,131 @@
+
+vim local/general_lr_closed_set_langs.txt
+3
+
+vim conf
+16k, num-ceps=5, num-mel-bins=23
+
+awk '{print $2}' data/train_itg3_v5/utt2lang | sort | uniq -c | sort -nr
+   1810 us
+    909 nn
+    450 uk
+
+utils/utt2spk_to_spk2utt.pl data/train_itg3_v5/utt2spk > data/train_itg3_v5/spk2utt
+utils/utt2spk_to_spk2utt.pl data/lre07_itg3_v5/utt2spk > data/lre07_itg3_v5/spk2utt
+
+utils/fix_data_dir.sh data/train_itg3_v5
+utils/fix_data_dir.sh data/lre07_itg3_v5
+3169 / 366
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in train_itg3_v5 lre07_itg3_v5; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 50 --cmd "$train_cmd" \
+       data/${t}_novtln exp_19/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_19/make_mfcc /home/puyingtong/kaldi/egs/lre07/v1/mfcc
+ done
+
+utils/fix_data_dir.sh data/train_itg3_v5_novtln
+utils/fix_data_dir.sh data/lre07_itg3_v5_novtln
+3168 / 366
+
+utils/subset_data_dir.sh data/train_itg3_v5_novtln 3000 data/train_itg3_v5_3k_novtln
+
+. ./cmd.sh;
+sid/train_diag_ubm.sh --nj 80 --cmd "$train_cmd" data/train_itg3_v5_3k_novtln 256 \
+    exp_19/diag_ubm_vtln
+lid/train_lvtln_model.sh --mfcc-config conf/mfcc_vtln.conf --nj 80 --cmd "$train_cmd" \
+     data/train_itg3_v5_3k_novtln exp_19/diag_ubm_vtln exp_19/vtln
+
+. ./cmd.sh;
+for t in lre07_itg3_v5 train_itg3_v5; do
+    lid/get_vtln_warps.sh --nj 30 --cmd "$train_cmd" \
+       data/${t}_novtln exp_19/vtln exp_19/${t}_warps
+    cp exp_19/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+utils/fix_data_dir.sh data/train_itg3_v5
+utils/filter_scp.pl data/train_itg3_v5/utt2warp data/train_itg3_v5/utt2spk > data/train_itg3_v5/utt2spk_tmp
+cp data/train_itg3_v5/utt2spk_tmp data/train_itg3_v5/utt2spk
+utils/fix_data_dir.sh data/train_itg3_v5
+3151
+
+utils/fix_data_dir.sh data/lre07_itg3_v5
+utils/filter_scp.pl data/lre07_itg3_v5/utt2warp data/lre07_itg3_v5/utt2spk > data/lre07_itg3_v5/utt2spk_tmp
+cp data/lre07_itg3_v5/utt2spk_tmp data/lre07_itg3_v5/utt2spk
+utils/fix_data_dir.sh data/lre07_itg3_v5
+362
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 30 --cmd "$train_cmd" \
+  data/train_itg3_v5 exp_19/make_mfcc $mfccdir
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 30 --cmd "$train_cmd" \
+  data/lre07_itg3_v5 exp_19/make_mfcc $mfccdir
+
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/train_itg3_v5 \
+  exp_19/make_vad $vaddir
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/lre07_itg3_v5 \
+  exp_19/make_vad $vaddir
+
+--- ubm ---
+
+utils/subset_data_dir.sh data/train_itg3_v5 1000 data/train_itg3_v5_1k
+utils/subset_data_dir.sh data/train_itg3_v5 3000 data/train_itg3_v5_3k
+
+
+. ./cmd.sh;
+lid/train_diag_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_itg3_v5_1k 2048 exp_19/diag_ubm_2048
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 20G" \
+  data/train_itg3_v5_3k exp_19/diag_ubm_2048 exp_19/full_ubm_2048_3k
+
+. ./cmd.sh;
+lid/train_full_ubm.sh --nj 30 --cmd "$train_cmd --mem 35G" \
+  data/train_itg3_v5 exp_19/full_ubm_2048_3k exp_19/full_ubm_2048
+
+
+--- i-vector ---
+
+nohup lid/train_ivector_extractor.sh --cmd "run.pl --mem 4G --mem 35G" \
+  --use-weights true \
+  --num-iters 5 exp_19/full_ubm_2048/final.ubm data/train_itg3_v5 \
+  exp_19/extractor_2048 > train_ivector.log19 &
+
+
+
+cp -r data/train_itg3_v5 data/train_itg3_v5_lr
+languages=local/general_lr_closed_set_langs.txt
+utils/filter_scp.pl -f 2 $languages <(lid/remove_dialect.pl data/train_itg3_v5/utt2lang) \
+  > data/train_itg3_v5_lr/utt2lang
+utils/fix_data_dir.sh data/train_itg3_v5_lr
+3151
+
+awk '{print $2}' data/train_itg3_v5_lr/utt2lang | sort | uniq -c | sort -nr
+   1796 us
+    907 nn
+    448 uk
+
+
+lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 40 \
+   exp_19/extractor_2048 data/train_itg3_v5_lr exp_19/ivectors_train_itg3_v5
+
+lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 30 \
+   exp_19/extractor_2048 data/lre07_itg3_v5 exp_19/ivectors_lre07_itg3_v5
+
+
+lid/run_logistic_regression_edit.sh train_itg3_v5 lre07_itg3_v5 exp_19

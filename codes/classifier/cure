@@ -1,0 +1,47 @@
+import numpy as np
+import os
+from pyclustering.cluster.cure import cure
+from pyclustering.cluster import cluster_visualizer
+
+
+def read_ivectors(filepath):
+  utt2lang = {}
+  with open('data/train_0530_itg/utt2lang', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      utt2lang[utt] = lang
+  with open('data/lre07_0530_itg/utt2lang', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      utt2lang[utt] = lang
+  X = []
+  y = []
+  label_dict = {'us': 0, 'uk': 1, 'nnl': 2, 'nnn': 3, 'nnm': 4, 'nnh': 5}
+  files = os.listdir(filepath)
+  # files = [file for file in os.listdir(filepath) if 'train' in file]
+  for file in files:
+    with open(f'{filepath}/{file}', 'r') as f:
+      for line in f:
+        item = line.strip().split()
+        utt = item[0]
+        label = utt2lang[utt]
+        vector = [float(x) for x in item[1:][1:-1]]
+        cls = label_dict[label]
+        X.append(vector)
+        y.append(cls)
+  return X, y
+
+if __name__ == '__main__':
+  X, y = read_ivectors('results/v1/exp_23/ivectors.23')
+  cure_instance = cure(X, 6)
+  cure_instance.process()
+  clusters = cure_instance.get_clusters()
+  len(clusters)
+
+  visualizer = cluster_visualizer()
+  visualizer.append_clusters(clusters, X)
+  visualizer.show()

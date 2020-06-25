@@ -1,0 +1,93 @@
+import librosa
+import librosa.display
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import sys
+import threading
+
+def get_wavs(dataset='train'):
+  utt2lang = dict()
+  with open(f'data/{dataset}_youtube/utt2lang', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      utt2lang[utt] = lang
+
+  path2lang = []
+  with open(f'data/{dataset}_youtube/wav.scp', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      path = item[-1]
+      path2lang.append([path, utt2lang[utt]])
+
+  return path2lang
+
+
+def create_spec(dataset, path2lang, plotpath='/data/pytong/spectrogram/youtube'):
+  '''
+
+  :param dataset: train or test
+  :param path2lang: path to label
+  :param plotpath: path to save generated plots (contains data name)
+  :return:
+  '''
+  for path, lang in path2lang:
+    wav = path.split('/')[-1]
+    savepath = f"{plotpath}/{dataset}/{lang}"
+    if wav.split('.')[0] in plotlist: continue
+    try:
+      clip, sr = librosa.load(path, sr=16000)
+      clip2, index = librosa.effects.trim(clip, top_db=20) # top_db higher, more silence
+
+      seconds = int(librosa.get_duration(clip2))
+      if seconds < 2: print(wav, ' ', seconds, 'seconds, too short!')
+      for i in range(seconds-1):
+        X = librosa.stft(clip2[sr*i:sr*(i+2)], n_fft=1024, hop_length=160)
+        X_magnitude, X_phase = librosa.magphase(X)
+        X_magnitude_db = librosa.amplitude_to_db(X_magnitude, ref=np.max)
+
+        plotname = f"{savepath}/{wav.split('.')[0]}.{i}.png"
+        plt.imsave(plotname, X_magnitude_db, origin='lower')
+        print(wav, 'saved!')
+    except Exception as e:
+      print('Error', wav, e)
+      pass
+
+
+def UseThreading(dataset, path2lang, plotpath='/data/pytong/spectrogram/youtube'):
+
+  global plotlist
+  # make plot save path and check the already created plots
+  if not os.path.exists(plotpath):
+    os.makedirs(plotpath)
+  if not os.path.exists(f"{plotpath}/{dataset}"):
+    os.mkdir(f"{plotpath}/{dataset}")
+    os.mkdir(f"{plotpath}/{dataset}/uk")
+    os.mkdir(f"{plotpath}/{dataset}/us")
+  fnames = os.listdir(f"{plotpath}/{dataset}/uk") + os.listdir(f"{plotpath}/{dataset}/us")
+  plotlist = [fname.split('.')[0] for fname in fnames]
+
+  # apply multithreading
+  num = int(len(path2lang)/100)
+  threads = []
+  for i in range(100):
+    t = threading.Thread(
+      target=create_spec, args=(dataset, path2lang[i*num:(i+1)*num], plotpath)
+    )
+    threads.append(t)
+    t.start()
+  last = threading.Thread(
+    target=create_spec, args=(dataset, path2lang[100*num:], plotpath)
+  )
+  threads.append(last)
+  last.start()
+  for t in threads:
+    t.join()
+
+
+if __name__ == '__main__':
+  dataset = int(sys.argv[1])
+  UseThreading(str(dataset), get_wavs(str(dataset)))
