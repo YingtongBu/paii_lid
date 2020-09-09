@@ -228,3 +228,126 @@ lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 8 \
 
 
 lid/run_logistic_regression_edit.sh train_relabel0609_correct0610 data_0617_test30 exp_30
+
+
+
+
+-------------------------------------------------
+test on test_180
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/itg_test180_exp30/utt2spk > data/itg_test180_exp30/spk2utt
+utils/fix_data_dir.sh data/itg_test180_exp30
+180
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in itg_test180_exp30; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_30/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_30/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/itg_test180_exp30_novtln
+179
+
+. ./cmd.sh;
+for t in itg_test180_exp30; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_30/vtln exp_30/${t}_warps
+    cp exp_30/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/itg_test180_exp30
+utils/filter_scp.pl data/itg_test180_exp30/utt2warp data/itg_test180_exp30/utt2spk > data/itg_test180_exp30/utt2spk_tmp
+cp data/itg_test180_exp30/utt2spk_tmp data/itg_test180_exp30/utt2spk
+utils/fix_data_dir.sh data/itg_test180_exp30
+179
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/itg_test180_exp30 exp_30/make_mfcc $mfccdir
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/itg_test180_exp30 \
+  exp_30/make_vad $vaddir
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 8 \
+   exp_30/extractor_2048 data/itg_test180_exp30 exp_30/ivectors_itg_test180_exp30 > extract_ivector.log1&
+
+awk '{print $2}' data/itg_test180_exp30/utt2lang | sort | uniq -c | sort -nr
+    179 ok
+
+lid/run_logistic_regression_edit_nopriors.sh train_relabel0609_correct0610 itg_test180_exp30 exp_30
+
+
+
+
+
+-------------------------------------------------
+test on 0703
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/data_0703_test30/utt2spk > data/data_0703_test30/spk2utt
+utils/fix_data_dir.sh data/data_0703_test30
+830
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in data_0703_test30; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_30/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_30/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/data_0703_test30_novtln
+827
+
+. ./cmd.sh;
+for t in data_0703_test30; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_30/vtln exp_30/${t}_warps
+    cp exp_30/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/data_0703_test30
+utils/filter_scp.pl data/data_0703_test30/utt2warp data/data_0703_test30/utt2spk > data/data_0703_test30/utt2spk_tmp
+cp data/data_0703_test30/utt2spk_tmp data/data_0703_test30/utt2spk
+utils/fix_data_dir.sh data/data_0703_test30
+824
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/data_0703_test30 exp_30/make_mfcc $mfccdir
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/data_0703_test30 \
+  exp_30/make_vad $vaddir
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 8 \
+   exp_30/extractor_2048 data/data_0703_test30 exp_30/ivectors_data_0703_test30 > extract_ivector.log1&
+
+awk '{print $2}' data/data_0703_test30/utt2lang | sort | uniq -c | sort -nr
+    179 ok
+
+lid/run_logistic_regression_edit_nopriors.sh train_relabel0609_correct0610 data_0703_test30 exp_30

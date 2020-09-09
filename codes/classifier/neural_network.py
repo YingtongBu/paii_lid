@@ -11,9 +11,10 @@ from pa_nlp.pytorch.estimator.train import TrainerBase
 class Model(nn.Module):
   def __init__(self):
     super(Model, self).__init__()
-    self.hidden1 = nn.Linear(512, 1024)
-    self.hidden2 = nn.Linear(1024, 1024)
-    self.hidden3 = nn.Linear(1024, 2)
+    # self.hidden1 = nn.Linear(512, 1024)
+    # self.hidden2 = nn.Linear(1024, 1024)
+    # self.hidden3 = nn.Linear(1024, 2)
+    self.layer = nn.Linear()
 
   def _init_weights(self):
     for name, w in self.named_parameters():
@@ -174,7 +175,9 @@ class Trainer(TrainerBase):
 
     return result
 
+
 if __name__ == '__main__':
+
   trainer = Trainer()
   trainer.train()
 

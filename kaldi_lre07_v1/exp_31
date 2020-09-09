@@ -143,3 +143,66 @@ nohup lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 3 \
 lid/run_logistic_regression_edit.sh data_relabel0609_correct0610_17 test_relabel0609_correct0610_17 exp_31
 
 
+
+-------------------------------------------------
+test on test_180
+-------------------------------------------------
+
+utils/utt2spk_to_spk2utt.pl data/itg_test180_exp31/utt2spk > data/itg_test180_exp31/spk2utt
+utils/fix_data_dir.sh data/itg_test180_exp31
+180
+
+--- VLTN ---
+
+. ./cmd.sh;
+for t in itg_test180_exp31; do
+    cp -r data/${t} data/${t}_novtln
+    rm -r data/${t}_novtln/{split,.backup,spk2warp} 2>/dev/null || true
+    steps/make_mfcc.sh --mfcc-config conf/mfcc_vtln.conf --nj 40 --cmd "$train_cmd" \
+       data/${t}_novtln exp_31/make_mfcc mfcc
+    lid/compute_vad_decision.sh data/${t}_novtln exp_31/make_mfcc mfcc
+ done
+
+utils/fix_data_dir.sh data/itg_test180_exp31_novtln
+179
+
+. ./cmd.sh;
+for t in itg_test180_exp31; do
+    lid/get_vtln_warps.sh --nj 8 --cmd "$train_cmd" \
+       data/${t}_novtln exp_31/vtln exp_31/${t}_warps
+    cp exp_31/${t}_warps/utt2warp data/$t/
+done
+
+
+--- MFCC ---
+
+
+utils/fix_data_dir.sh data/itg_test180_exp31
+utils/filter_scp.pl data/itg_test180_exp31/utt2warp data/itg_test180_exp31/utt2spk > data/itg_test180_exp31/utt2spk_tmp
+cp data/itg_test180_exp31/utt2spk_tmp data/itg_test180_exp31/utt2spk
+utils/fix_data_dir.sh data/itg_test180_exp31
+179
+
+. ./cmd.sh;
+mfccdir=`pwd`/mfcc;
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 8 --cmd "$train_cmd" \
+  data/itg_test180_exp31 exp_31/make_mfcc $mfccdir
+
+. ./cmd.sh;
+vaddir=`pwd`/mfcc;
+lid/compute_vad_decision.sh --nj 4 --cmd "$train_cmd" data/itg_test180_exp31 \
+  exp_31/make_vad $vaddir
+
+nohup . ./cmd.sh;
+lid/extract_ivectors.sh --cmd "run.pl --mem 3G" --nj 8 \
+   exp_31/extractor_2048 data/itg_test180_exp31 exp_31/ivectors_itg_test180_exp31 > extract_ivector.log1&
+
+awk '{print $2}' data/itg_test180_exp31/utt2lang | sort | uniq -c | sort -nr
+    179 ok
+
+lid/run_logistic_regression_edit_nopriors.sh data_relabel0609_correct0610_17 itg_test180_exp31 exp_31
+
+
+curl -X POST -F 'file=@/data/pytong/wav/itg_test180_exp31/EE1901030743135-interview-iOS-2020-06-19-00-11-08.mp4' 192.168.1.208:9001/accent
+
+curl -H "Content-Type: application/json" -d '{"request_id":"28eaac9c-594e-4bdb-953c-bb35466c5f51"}' 192.168.1.208:9001/result

@@ -4,29 +4,44 @@ import xlrd
 import random
 
 def error():
+  map4 = {
+    'us': 'us',
+    'uk': 'uk',
+    'nnh': 'nnh',
+    'nnm': 'nnh',
+    'nnn': 'nnl',
+    'nnl': 'nnh'
+  }
   gold = {}
   error = []
-  with open('data/data_0610_test29/utt2lang_0610data_relabel_itg', 'r') as f:
+  with open('/data/pytong/data/test_mturk_v2/utt2lang.4', 'r') as f:
     for line in f:
       item = line.strip().split()
       utt = item[0]
       lang = item[-1]
       gold[utt] = lang
-  with open('exp_29/ivectors_data_0610_test29/output', 'r') as f:
+  with open('exp_34/ivectors_test_mturk_v2/output', 'r') as f:
     for line in f:
       item = line.strip().split()
       utt = item[0]
       lang = item[-1]
-      if utt not in gold.keys():
+      # lang2 = gold[utt]
+      try:
+        lang2 = map4[gold[utt]]
+      except KeyError:
         continue
-      if gold[utt] in ['nnm', 'nnh', 'nn']:
-        lang2 = 'nn'
-      else:
-        lang2 = 'ok'
+      # if utt not in gold.keys():
+      #   error.append([utt, 'no_result', lang])
+      # elif lang != gold[utt]:
+      #   error.append([utt, gold[utt], lang])
+      # if gold[utt] in ['nnm', 'nnh', 'nnl']:
+      #   lang2 = 'nn'
+      # else:
+      #   lang2 = 'ok'
       if lang != lang2: #and lang == 'nn' and 'ytb' not in utt:
         error.append([utt, gold[utt], lang])
   print(len(error))
-  with open('error_0610_exp29', 'w') as f:
+  with open('error_testdata_exp34.4', 'w') as f:
     # f.writelines(line[0] + ' ' + line[1] + ' ' + '\n' for line in error)
     f.writelines(line[0] + ' ' + line[1] + ' ' + line[2] + ' ' + '\n' for line in error)
 
@@ -184,7 +199,7 @@ def error_link():
   to_write = []
   utt2gold = {}
   utt2pred = {}
-  with open('error_0617_exp29', 'r') as f:
+  with open('error_testdata_exp31', 'r') as f:
     for line in f:
       item = line.split()
       utt = item[0]
@@ -324,11 +339,26 @@ def error_link():
     # except KeyError:
     #   continue
 
-  workbook = xlrd.open_workbook('data.info/iTG_0617.xlsx')
+  # workbook = xlrd.open_workbook('data.info/iTG_0617.xlsx')
+  # sheet = workbook.sheet_by_name('Sheet1')
+  # for i in range(1, sheet.nrows):
+  #   answer_id = str(sheet.row_values(i)[0])
+  #   original_link = str(sheet.row_values(i)[5])
+  #   video_name = original_link.split('/')[-1]
+  #   video_id = video_name.split('.')[0]
+  #   spk = video_id.split('-')[0].split('_')[0]
+  #   utt_id = f'{spk}-{answer_id}'
+  #   try:
+  #     if utt_id not in [x[0] for x in to_write]:
+  #       to_write.append([utt_id, utt2gold[utt_id], utt2pred[utt_id], original_link])
+  #   except KeyError:
+  #     continue
+
+  workbook = xlrd.open_workbook('data.info/iTG_test180.xlsx')
   sheet = workbook.sheet_by_name('Sheet1')
   for i in range(1, sheet.nrows):
     answer_id = str(sheet.row_values(i)[0])
-    original_link = str(sheet.row_values(i)[5])
+    original_link = str(sheet.row_values(i)[2])
     video_name = original_link.split('/')[-1]
     video_id = video_name.split('.')[0]
     spk = video_id.split('-')[0].split('_')[0]
@@ -340,10 +370,9 @@ def error_link():
       continue
 
   print(len(to_write))
-  with open('error_0617_144.csv', 'w') as f:
+  with open('error_testdata_exp31.csv', 'w') as f:
     writer = csv.writer(f, delimiter=',')
     writer.writerows(line for line in to_write)
-
 
 def error_link2():
   to_write = []
@@ -1054,14 +1083,268 @@ def errorAfterRelabel():
   # with open('utt2lang_relabel_itg_124', 'w') as f:
   #   f.writelines(line for line in utt2lang)
 
+def link_vname_utt():
+  vname2utt = {}
+  utt2lang_pred = []
+  with open('/data/pytong/kaldi/egs/lre07/v1/utt2vname', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      vname = item[1]
+      vname2utt[vname] = utt
+  with open('0624_result.txt', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      vname = item[0]
+      lang = item[1]
+      utt = vname2utt[vname]
+      utt2lang_pred.append(utt + ' ' + lang + '\n')
+  print(len(utt2lang_pred))
+  with open('utt2lang180_pred', 'w') as f:
+    f.writelines(line for line in utt2lang_pred)
+
+def vname2lang():
+  utt2vname = {}
+  utt2lang_pred = []
+  with open('/data/pytong/kaldi/egs/lre07/v1/utt2vname', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      vname = item[1]
+      utt2vname[utt] = vname
+  with open('/data/pytong/kaldi/egs/lre07/v1/exp_30/ivectors_itg_test180_exp30/output.2.0', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      vname = utt2vname[utt]
+      utt2lang_pred.append(vname + ' ' + lang + '\n')
+  print(len(utt2lang_pred))
+  with open('testdata180_result2.0', 'w') as f:
+    f.writelines(line for line in utt2lang_pred)
+
+import parselmouth
+def noise(fn):
+  try:
+    snd = parselmouth.Sound(fn)
+    pitch = snd.to_pitch()
+    pitch_values = pitch.selected_array['frequency']
+    proportion = len(pitch_values[pitch_values > 0]) / len(pitch_values)
+  except Exception as e:
+    print(e)
+    return 0
+  return proportion
+
+def test180_precision():
+  vname2lang_paii = {}
+  to_write = []
+  workbook = xlrd.open_workbook('paii_test_result_0628.xlsx')
+  sheet = workbook.sheet_by_name('Sheet1')
+  for i in range(1, sheet.nrows):
+    vname = str(sheet.row_values(i)[0])
+    lang = str(sheet.row_values(i)[1])
+    vname2lang_paii[vname] = lang
+  print(len(vname2lang_paii))
+  tag2lang = {'Non-native - Heavy': 'nnh', 'Non-native - Moderate': 'nnm',
+              'Non-native - Light': 'nnl', 'Non-native - Neutral': 'nnn',
+              'Native-American': 'us', 'Native-British': 'uk', 'None': 'nnl'}
+  workbook = xlrd.open_workbook('iTG测试集人工标注.xlsx')
+  sheet = workbook.sheet_by_name('Sheet1')
+  for i in range(1, sheet.nrows):
+    answer_id = str(sheet.row_values(i)[0])
+    original_link = str(sheet.row_values(i)[3])
+    video_name = original_link.split('/')[-1]
+    video_id = video_name.split('.')[0]
+    spk = video_id.split('-')[0].split('_')[0]
+    utt_id = f'{spk}-{answer_id}'
+    tag = str(sheet.row_values(i)[1])
+    try:
+      paii_lang = vname2lang_paii[video_name]
+    except KeyError as e:
+      print('error,', utt_id)
+    itg_lang = tag2lang[tag]
+    itg_lang2 = 'nn' if itg_lang in ['nnm', 'nnh'] else 'ok'
+    to_write.append([utt_id, original_link, paii_lang, itg_lang2, itg_lang])
+
+  print(len(to_write))
+  with open('test180_paii_itg.csv', 'w') as f:
+    writer = csv.writer(f, delimiter=',')
+    writer.writerows(line for line in to_write)
+
+def combine_post_ystar_ytuta(posteriors, output, utt2lang):
+  utt2poster1 = {}
+  utt2poster2 = {}
+  utt2star = {}
+  utt2pred = {}
+  lang2tag = {'ok': 0, 'nn': 1}
+  with open(utt2lang, 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      tag = lang2tag[lang]
+      utt2star[utt] = tag
+  with open(output, 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      tag = lang2tag[lang]
+      utt2pred[utt] = tag
+  with open(posteriors, 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      ok = float(item[2])
+      nn = float(item[3])
+      utt2poster1[utt] = ok
+      utt2poster2[utt] = nn
+  to_write = []
+  for utt in utt2star.keys():
+      to_write.append([utt, utt2poster1[utt], utt2poster2[utt], utt2pred[utt], utt2star[utt]])
+  with open('combine_til0623.csv', 'w') as f:
+    writer = csv.writer(f, delimiter=',')
+    writer.writerows(line for line in to_write)
+
+def utt2lang_relabel_til0623():
+  relabelfiles = ['utt2lang_0610data_relabel_itg', 'utt2lang3', 'utt2lang_relabel_itg_446_6cls']
+  utt2lang_relabel = {}
+  to_write = []
+  for relabelfile in relabelfiles:
+    with open(relabelfile, 'r') as f:
+      for line in f:
+        item = line.strip().split()
+        utt = item[0]
+        lang = item[-1]
+        utt2lang_relabel[utt] = lang
+  with open('utt2lang', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      if utt in utt2lang_relabel:
+        to_write.append(utt + ' ' + utt2lang_relabel[utt] + '\n')
+      else:
+        to_write.append(utt + ' ' + lang + '\n')
+  print(len(to_write))
+  with open('utt2lang_relabel_til0623', 'w') as f:
+    f.writelines(line for line in to_write)
+
+import numpy as np
+def count_conf_join(fPath):
+  P = []
+  file_list = []
+  ids = []
+  with open(fPath) as f:
+    line = f.readline()
+    while line:
+      line = line.replace('\n', '')
+      items = line.split('\t')
+      print(items)
+      ids.append(items[0])
+      P.append([float(items[1]), float(items[2]), int(items[-1])])
+      line = f.readline()
+  m = len(P[0])
+  n = len(P)
+  C = [[0]*(m-1)for i in range(m-1)]
+  t = Average(P)
+  print(t)
+  for i in range(n):
+    cnt = 0
+    y0 = -1
+    p = 0
+    for j in range(m-1):
+      if P[i][j] >= t[j]:
+        cnt+=1
+        y0 = j if p <= P[i][j] else y0
+        p = max(p, P[i][j])
+    y1 = P[i][m-1]
+    if str(P[i][-1]) == '0':
+      lang = 'ok'
+    else:
+      lang = 'nn'
+
+    if cnt > 0:
+      C[y1][y0] += 1
+      if y1 == y0: file_list.append(ids[i] + " " + lang)
+  print(C)
+  with open('utt2lang_filtered', 'w') as f:
+    for line in file_list:
+      line += '\n'
+      f.write(line)
+  return C
+
+def Average(P):
+  n  = len(P)
+  m = len(P[0])
+  t = [0]*(m-1)
+  for j in range(m-1):
+    l = []
+    for i in range(n):
+      if P[i][-1] == j:
+        l.append(P[i][j])
+    t[j] = sum(l)/len(l)
+  return t
+
+def mturk():
+  to_write = []
+  correct = 0
+  workbook = xlrd.open_workbook('mturk/mturk_out1.xlsx')
+  sheet = workbook.sheet_by_name('Sheet1')
+  for i in range(1, sheet.nrows):
+    count = {}
+    video_id = str(sheet.row_values(i)[0])
+    speaker_id = str(sheet.row_values(i)[0]).split('-')[0].split('_')[0]
+    label1 = str(sheet.row_values(i)[1])
+    label2 = str(sheet.row_values(i)[2])
+    label3 = str(sheet.row_values(i)[3])
+    itg_label = str(sheet.row_values(i)[-1])
+    count[label1] = count.get(label1, 0) + 1
+    count[label2] = count.get(label2, 0) + 1
+    count[label3] = count.get(label3, 0) + 1
+    try:
+      mturk_label = [item[0] for item in count.items() if item[1] in [2, 3]][0]
+    except IndexError:
+      mturk_label = 'None'
+    if mturk_label != 'None':
+      correct += 1
+    link = 'https://teacher-accent.s3-us-west-2.amazonaws.com/' + video_id
+    to_write.append([speaker_id, label1, label2, label3, itg_label, mturk_label, link])
+  print(correct)
+  print(len(to_write))
+  with open('mturk_out1_.csv', 'w') as f:
+    writer = csv.writer(f, delimiter=',')
+    writer.writerows(line for line in to_write)
+
+def correct_65():
+  pred = {}
+  count = 0
+  with open('exp_35/ivectors_test_mturk_v3/output', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      pred[utt] = lang
+  with open('exp_35/ivectors_test_mturk_v3/utt2lang_mturk_65', 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[-1]
+      if lang == pred[utt]:
+        count+=1
+      else:
+        print(utt, lang, pred[utt])
+  print(count)
+
+
 if __name__ == '__main__':
   # dist = read_ivectors('results/v1/exp_23/ivectors.23')
   # print(dist[4])
   # read_ivectors_0606('results/ivectors.25.nnl', 35)
-  error_link()
-  # difference()
-  # errorAfterRelabel_()
-  # relabel0617()
+  # error_link()
+  combine_post_ystar_ytuta('cl_test/til0623/posteriors', 'cl_test/til0623/output', 'cl_test/til0623/utt2lang')
+  C = count_conf_join('combine_til0623.txt')
+  print(C)
 
 '''
 https://stackoverflow.com/questions/29661574/normalize-numpy-array-columns-in-python

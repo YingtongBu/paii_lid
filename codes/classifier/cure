@@ -3,7 +3,6 @@ import os
 from pyclustering.cluster.cure import cure
 from pyclustering.cluster import cluster_visualizer
 
-
 def read_ivectors(filepath):
   utt2lang = {}
   with open('data/train_0530_itg/utt2lang', 'r') as f:
