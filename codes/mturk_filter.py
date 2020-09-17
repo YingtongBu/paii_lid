@@ -4,6 +4,7 @@ from pa_nlp import *
 from pa_nlp import nlp
 import random
 from collections import defaultdict
+import json
 map6 = {
   'Native American': 'us',
   'Native British': 'uk',
@@ -251,7 +252,7 @@ def mturk_relabel_newdata_nn():
       csvwriter.writerows(suburl)
 
 
-def mturk_data_resample(input_data, wav_scp, output_file):
+def mturk_data_resample(input_data, wav_scp, output_file, output_list=None):
   data = list(nlp.pydict_file_read(input_data))
   wav_path_dict = dict()
   wav_path = [item.strip().split() for item in open(wav_scp, 'r').readlines()]
@@ -262,6 +263,7 @@ def mturk_data_resample(input_data, wav_scp, output_file):
 
   class_dict = defaultdict(list)
   sample_list = []
+  audio_samples = defaultdict()
   for d in data:
     # if d.get('class') not in class_dict:
     #   class_dict[d.get('class')].append(d.get('id'))
@@ -277,8 +279,19 @@ def mturk_data_resample(input_data, wav_scp, output_file):
   for k, v in class_dict.items():
     if k in [0, 1, 2]:
       sample_list += random.sample(v, 125)
+    if isinstance(k, int):
+
+      audio_samples[k] = dict(utt_id=random.sample(v, 5), wav_path=[])
 
   sample_list += random.sample(accent_list, 125)
+  # audio_samples = random.sample(accent_list, 5)
+  for k, v in audio_samples.items():
+    for utt in v['utt_id']:
+      audio_samples[k]['wav_path'].append(wav_path_dict[utt])
+    # v.update({'wav_path': wav_path_dict[k]})
+  if output_list:
+    with open(output_list, 'w')as f_list:
+      json.dump(audio_samples, f_list, indent=2)
   urls = []
   for sample in sample_list:
     video_name = wav_path_dict[sample].split('/')[-1]
@@ -320,5 +333,6 @@ if __name__ == "__main__":
 
   input_data = 'data/data_til0819/data.03.train.pydict'
   wav_scp = 'data/data_til0819/wav.scp'
-  output_csv = 'mturk/sample_500/samplr_500.csv'
-  mturk_data_resample(input_data, wav_scp, output_csv)
+  output_csv = 'mturk/sample_500/sample_500.csv'
+  audio_samples = 'mturk/sample_500/sample_5.json'
+  mturk_data_resample(input_data, wav_scp, output_csv, output_list=audio_samples)
