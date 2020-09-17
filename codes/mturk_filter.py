@@ -1,6 +1,9 @@
 import csv
 import xlrd
-
+from pa_nlp import *
+from pa_nlp import nlp
+import random
+from collections import defaultdict
 map6 = {
   'Native American': 'us',
   'Native British': 'uk',
@@ -247,26 +250,66 @@ def mturk_relabel_newdata_nn():
       csvwriter.writerow(fields)
       csvwriter.writerows(suburl)
 
+
+def mturk_data_resample(input_data, wav_scp, output_file):
+  data = list(nlp.pydict_file_read(input_data))
+  wav_path_dict = dict()
+  wav_path = [item.strip().split() for item in open(wav_scp, 'r').readlines()]
+
+  for wav in wav_path:
+    if wav[0] not in wav_path_dict:
+      wav_path_dict[wav[0]] = wav[1]
+
+  class_dict = defaultdict(list)
+  sample_list = []
+  for d in data:
+    # if d.get('class') not in class_dict:
+    #   class_dict[d.get('class')].append(d.get('id'))
+    class_dict[d.get('class')].append(d.get('id'))
+  accent_list = class_dict[3] + class_dict[4] +class_dict[5]
+  print(f'There are {len(class_dict[0])} us samples')
+  print(f'There are {len(class_dict[1])} uk samples')
+  print(f'There are {len(class_dict[2])} neutral samples')
+  print(f'There are {len(class_dict[3])} nn light samples')
+  print(f'There are {len(class_dict[4])} nn moderate samples')
+  print(f'There are {len(class_dict[5])} nn heavy samples')
+  print(f'There are {len(accent_list)} nn samples')
+  for k, v in class_dict.items():
+    if k in [0, 1, 2]:
+      sample_list += random.sample(v, 125)
+
+  sample_list += random.sample(accent_list, 125)
+  urls = []
+  for sample in sample_list:
+    video_name = wav_path_dict[sample].split('/')[-1]
+    url = 'https://teacher-accent.s3-us-west-2.amazonaws.com/' + video_name
+    urls.append([url])
+  fields = ['audio_url']
+  with open(output_file, 'w') as csvfile:
+    csvwriter = csv.writer(csvfile)
+    csvwriter.writerow(fields)
+    csvwriter.writerows(urls)
+
 if __name__ == "__main__":
   # mturk_relabel_newdata_nn()
-  total6, total4, match_6, match_4 = 0, 0, 0, 0
-  utt2lang6, utt2lang4 = [], []
-  distinct_utt2lang6 = []
-  distinct_utt2lang4 = []
-  itg_to_write = []
-  for i in range(144, 145):
-    c6, c4, match6, match4 = filter(f'mturk/original/{i}.csv',
-                                    f'mturk/out/out{i}.csv',
-                                    'data/data_itg0826/utt2lang',
-                                    utt2lang6, utt2lang4,
-                                    distinct_utt2lang6, distinct_utt2lang4,
-                                    itg_to_write)
-    total6 += c6
-    total4 += c4
-    match_6 += match6
-    match_4 += match4
-  print(total6, total4)
-  print(match_6, match_4)
+  # total6, total4, match_6, match_4 = 0, 0, 0, 0
+  # utt2lang6, utt2lang4 = [], []
+  # distinct_utt2lang6 = []
+  # distinct_utt2lang4 = []
+  # itg_to_write = []
+  # for i in range(144, 145):
+  #   c6, c4, match6, match4 = filter(f'mturk/original/{i}.csv',
+  #                                   f'mturk/out/out{i}.csv',
+  #                                   'data/data_itg0826/utt2lang',
+  #                                   utt2lang6, utt2lang4,
+  #                                   distinct_utt2lang6, distinct_utt2lang4,
+  #                                   itg_to_write)
+  #   total6 += c6
+  #   total4 += c4
+  #   match_6 += match6
+  #   match_4 += match4
+  # print(total6, total4)
+  # print(match_6, match_4)
   # with open('mturk/utt2lang6.v9', 'w') as f:
   #   f.writelines(line for line in utt2lang6)
   # with open('mturk/utt2lang4.v9', 'w') as f:
@@ -274,3 +317,8 @@ if __name__ == "__main__":
   # print(len(itg_to_write))
   # with open('mturk/itg_label.v9', 'w') as f:
   #   f.writelines(line for line in itg_to_write)
+
+  input_data = 'data/data_til0819/data.03.train.pydict'
+  wav_scp = 'data/data_til0819/wav.scp'
+  output_csv = 'mturk/sample_500/samplr_500.csv'
+  mturk_data_resample(input_data, wav_scp, output_csv)
