@@ -129,7 +129,7 @@ def run_align2(data_fn, output_fn):
       cur['meta'] = line['meta']
       cur['label'] = line['label']
       cur['align_res'] = res_filter_eps
-    pydict_content.append(cur)
+      pydict_content.append(cur)
   print(len(pydict_content))
   with open(output_fn, 'w') as f_o:
     f_o.writelines(str(line) + '\n' for line in pydict_content)
