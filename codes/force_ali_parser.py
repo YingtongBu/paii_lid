@@ -110,6 +110,29 @@ def run_align(wavs, utt2lang_file, out_name):
 # run_align('data_mturk_train6255/wav.scp_mturk_6255', 'data_mturk_train6255/utt2lang_mturk_6255', 'data.03.train.pydict')
 # run_align('data_mturk_train6547/wav.scp_mturk_6547', 'data_mturk_train6547/utt2lang_mturk_6547', 'data.03.train.pydict')
 
+def run_align2(data_fn, output_fn):
+  pydict_content = []
+  with open(data_fn, 'r') as f:
+    for line in f:
+      cur = {}
+      line = eval(line)
+      wav_path = line['LBD']
+      trans  = wav_path.replace('wav', 'txt')
+      try:
+        res = requests.post('http://192.168.1.209:9001/alig',
+                            files={'file': open(wav_path, 'rb'),
+                                   'transcript': open(trans, 'rb')}
+                            ).json()['alignment']
+      except FileNotFoundError:
+        continue
+      res_filter_eps = [r for r in res if r[0] != '<eps>']
+      cur['meta'] = line['meta']
+      cur['label'] = line['label']
+      cur['align_res'] = res_filter_eps
+    pydict_content.append(cur)
+  print(len(pydict_content))
+  with open(output_fn, 'w') as f_o:
+    f_o.writelines(str(line) + '\n' for line in pydict_content)
 
 if __name__ == '__main__':
   add_train()
