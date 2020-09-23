@@ -569,7 +569,7 @@ def filter_same_label(data, output_same_label):
 
     for k, v in data.items():
 
-      if v[0] != 100 and v[1] != 100 :
+      if int(v[0]) != 100 and int(v[1]) != 100 :
         if v[0] == v[1]:
 
           print(v[0], v[1], file=f_o)

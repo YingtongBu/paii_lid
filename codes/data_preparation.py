@@ -14,6 +14,16 @@ map6 = {
   'nnm':4,
   'nnh':5
 }
+
+
+map2 = {
+  0:0,
+  1:0,
+  2:0,
+  3:0,
+  4:1,
+  5: 1
+  }
 def download_data(data_json):
   cnt = 0
   data = json.load(open(data_json, 'r'))

@@ -1069,9 +1069,9 @@ def check_not_found():
         not_found.append(utt)
   print(not_found)
 
-def two_classes():
+def two_classes(file):
   utt2lang = []
-  with open('utt2lang.6', 'r') as f:
+  with open(file, 'r') as f:
     for line in f:
       item = line.strip().split()
       utt = item[0]
@@ -1499,5 +1499,6 @@ if __name__ == '__main__':
   # testdata_180_label()
   # newdata_0716()
   # select_testset_mturk_180()
-  newdata_0520('0826')
+  # newdata_0520('0826')
   # new_utt2nid()
+  two_classes('data/data_til0819/utt2lang')
