@@ -1069,21 +1069,41 @@ def check_not_found():
         not_found.append(utt)
   print(not_found)
 
-def two_classes(file):
+def two_classes(file, output_file):
   utt2lang = []
   with open(file, 'r') as f:
     for line in f:
       item = line.strip().split()
       utt = item[0]
       lang = item[1]
-      if lang in ['nnm', 'nnh', 'nn', 'nnl']:
+      if lang in ['nnm', 'nnh']:
         lang = 'nn'
       else:
         lang = 'ok'
       utt2lang.append(utt + ' ' + lang + '\n')
   print(len(utt2lang))
-  with open(f'utt2lang.2.nnl', 'w') as f:
+  with open(output_file, 'w') as f:
     f.writelines(line for line in utt2lang)
+
+def three_classes(file, output_file):
+  utt2lang = []
+  with open(file, 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      lang = item[1]
+      if lang in ['us']:
+        lang = 'us'
+      elif lang in ['uk']:
+        lang = 'uk'
+
+      else:
+        lang = 'others'
+      utt2lang.append(utt + ' ' + lang + '\n')
+  print(len(utt2lang))
+  with open(output_file, 'w') as f:
+    f.writelines(line for line in utt2lang)
+
 
 def four_classes(f='utt2lang.6'):
   map4 = {
@@ -1501,4 +1521,6 @@ if __name__ == '__main__':
   # select_testset_mturk_180()
   # newdata_0520('0826')
   # new_utt2nid()
-  two_classes('data/data_til0819/utt2lang')
+  output= 'data_train_mturk_0903/utt2lang.3'
+  # two_classes('data_train_mturk_0903/utt2lang', output)
+  three_classes('data_train_mturk_0903/utt2lang', output )
