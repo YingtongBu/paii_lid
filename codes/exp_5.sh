@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 #dataset name:
-train_set=data_mturk_train5479
-test_set=test_mturk_1368
+train_set=data_train_itg_0903_xvector
+test_set=data_train_itg_0903_xvector
 
 stage=0
 subset_sample=2000
@@ -17,10 +17,10 @@ nnet_dir=exp_5/xvector_nnet_1a
 
 # vim conf/mfcc.conf
 conf=16khz
-musan_dir=/data/pytong/wav/musan
+musan_dir=/data/pytong/data/musan
 #--- data preparation ---
 
-mfccdir=`pwd`/mfcc;
+# mfccdir=`pwd`/mfcc;
 
 # if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $mfccdir/storage ]; then
 
@@ -83,7 +83,7 @@ if [ $stage -eq 2 ]; then
 
   #prepare for data augmentation
   frame_shift=0.01;
-  awk -v frame_shift=$frame_shift '{print $1, $2*frame_shift;}' data/$train_set > data/$train_set/reco2dur
+  awk -v frame_shift=$frame_shift '{print $1, $2*frame_shift;}' data/$train_set/utt2num_frames > data/$train_set/reco2dur
 
   #--- data aug ---
   # aug by reverbing (not adding any noises here)
@@ -104,7 +104,7 @@ if [ $stage -eq 2 ]; then
   cp data/$train_set/vad.scp data/${train_set}_reverb/
   utils/copy_data_dir.sh --utt-suffix "-reverb" data/${train_set}_reverb data/${train_set}_reverb.new
   rm -rf data/${train_set}_reverb
-  mv data/${train_set}}_reverb.new data/${train_set}_reverb
+  mv data/${train_set}_reverb.new data/${train_set}_reverb
 
   # Augment with musan
   steps/data/make_musan.sh --sampling-rate 16000 $musan_dir data
@@ -136,6 +136,8 @@ if [ $stage -eq 3 ]; then
   # the list.
   steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
     data/${train_set}_aug_${subset_sample} exp_5/make_mfcc $mfccdir
+  #first to fix the subset dataset
+  utils/fix_data_dir.sh data/${train_set}_aug_${subset_sample}
   # Combine the clean and augmented VoxCeleb2 list.  This is now roughly
   # double the size of the original clean list.
   utils/combine_data.sh data/${train_set}_combined data/${train_set}_aug_${subset_sample} data/$train_set
