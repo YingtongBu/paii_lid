@@ -447,7 +447,7 @@ def newdata_0429():
 
 # answer_id	Accent	full_name	gender	nationality	question_text	answer_video_path
 # 0506 0512
-def newdata_0506(date='0506'):
+def newdata_0506(date='0512'):
   utt2lang = []
   utt2spk = []
   utt2wav = []
@@ -505,19 +505,20 @@ def newdata_0506(date='0506'):
   for index in lre07_indices:
     train_indices.remove(index)
   print(train_indices)
-  for dataset in ['train', 'lre07']:
-    with open(f'data/{dataset}_itg{date}/wav.scp', 'w') as f:
-      f.writelines(line for line in list(np.array(utt2wav)[locals()[f'{dataset}_indices']]))
-    with open(f'data/{dataset}_itg{date}/utt2lang', 'w') as f:
-      f.writelines(line for line in list(np.array(utt2lang)[locals()[f'{dataset}_indices']]))
-    with open(f'data/{dataset}_itg{date}/utt2spk', 'w') as f:
-      f.writelines(line for line in list(np.array(utt2spk)[locals()[f'{dataset}_indices']]))
-  with open(f'data/train_itg{date}/spk2gender', 'w') as f:
-    f.writelines(line for line in spk2gender)
-
+  # for dataset in ['train', 'lre07']:
+  #   with open(f'data/{dataset}_itg{date}/wav.scp', 'w') as f:
+  #     f.writelines(line for line in list(np.array(utt2wav)[locals()[f'{dataset}_indices']]))
+  #   with open(f'data/{dataset}_itg{date}/utt2lang', 'w') as f:
+  #     f.writelines(line for line in list(np.array(utt2lang)[locals()[f'{dataset}_indices']]))
+  #   with open(f'data/{dataset}_itg{date}/utt2spk', 'w') as f:
+  #     f.writelines(line for line in list(np.array(utt2spk)[locals()[f'{dataset}_indices']]))
+  # with open(f'data/train_itg{date}/spk2gender', 'w') as f:
+  #   f.writelines(line for line in spk2gender)
+  with open('data/utt2nid', 'a') as f:
+    f.writelines(line for line in utt2nid)
 # answer_id	Accent 	gender	nationality	question_text	answer_video_path
-# 0520 0528 0610 0617 0703 0716 0806 0819
-def newdata_0520(date='0520'):
+# 0520 0528 0610 0617 0703 0716 0806 0819 0826 0903
+def newdata_0520(date='0903'):
   utt2lang = []
   utt2spk = []
   utt2wav = []
@@ -566,14 +567,14 @@ def newdata_0520(date='0520'):
     utt2spk.append(utt_id + ' ' + spk + '\n')
     utt2wav.append(utt_id + ' ' + directory + '\n')
   print('total:', len(utt2spk))
-  with open(f'data/data_itg{date}/wav.scp', 'w') as f:
-    f.writelines(line for line in utt2wav)
-  with open(f'data/data_itg{date}/utt2lang', 'w') as f:
-    f.writelines(line for line in utt2lang)
-  with open(f'data/data_itg{date}/utt2spk', 'w') as f:
-    f.writelines(line for line in utt2spk)
-  with open(f'data/data_itg{date}/spk2gender', 'w') as f:
-    f.writelines(line for line in spk2gender)
+  # with open(f'data/data_itg{date}/wav.scp', 'w') as f:
+  #   f.writelines(line for line in utt2wav)
+  # with open(f'data/data_itg{date}/utt2lang', 'w') as f:
+  #   f.writelines(line for line in utt2lang)
+  # with open(f'data/data_itg{date}/utt2spk', 'w') as f:
+  #   f.writelines(line for line in utt2spk)
+  # with open(f'data/data_itg{date}/spk2gender', 'w') as f:
+  #   f.writelines(line for line in spk2gender)
   # random.seed(20)
   # lre07_indices = sorted(random.sample(range(len(utt2wav)), int((len(utt2wav))/10)))
   # print(lre07_indices)
@@ -590,8 +591,8 @@ def newdata_0520(date='0520'):
   #     f.writelines(line for line in list(np.array(utt2spk)[locals()[f'{dataset}_indices']]))
   # with open(f'data/train_itg{date}/spk2gender', 'w') as f:
   #   f.writelines(line for line in spk2gender)
-  # with open('data/utt2nid', 'a') as f:
-  #   f.writelines(line for line in utt2nid)
+  with open('data/utt2nid', 'a') as f:
+    f.writelines(line for line in utt2nid)
 
 # answer_id	Accent	full_name	gender	nationality	question_text	answer_video_path
 def newdata_0603():
@@ -731,7 +732,7 @@ def newdata_0623():
   #   f.writelines(line for line in spk2gender)
 
 
-def testdata_180():
+def gen_testdata_180():
   utt2lang = []
   utt2spk = []
   utt2wav = []
@@ -775,7 +776,7 @@ def testdata_180():
     f.writelines(line for line in utt2vname)
 
 
-def testdata_180_label():
+def gen_testdata_180_label():
   utt2lang = []
   unique_answers = []
   tag2lang = {'Non-native - Heavy': 'nnh', 'Non-native - Moderate': 'nnm',
@@ -1515,12 +1516,13 @@ if __name__ == '__main__':
   # convert(i)
   # nations = get_nation()
   # testdata_180()
-  # newdata_0623()
+  # newdata_0520()
+  newdata_0623()
   # testdata_180_label()
   # newdata_0716()
   # select_testset_mturk_180()
   # newdata_0520('0826')
   # new_utt2nid()
-  output= 'data_train_mturk_0903/utt2lang.3'
+  # output= 'data_train_mturk_0903/utt2lang.3'
   # two_classes('data_train_mturk_0903/utt2lang', output)
-  three_classes('data_train_mturk_0903/utt2lang', output )
+  # three_classes('data_train_mturk_0903/utt2lang', output )

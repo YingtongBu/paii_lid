@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
+#This script is for xvector training and extract xvector feature for other model training
 #dataset name:
 train_set=data_train_itg_0903_xvector
 test_set=data_train_itg_0903_xvector
 
 stage=0
-subset_sample=2000
+subset_sample=12000
 
 . ./cmd.sh
 . ./path.sh
@@ -197,7 +198,7 @@ if [ $stage -eq 6 ]; then
   # nnet_dir=exp_5/xvector_nnet_1a_200;
   # CUDA_VISIBLE_DEVICES=1,2 
   local/nnet3/xvector/run_xvector.sh --cmd "run.pl --gpu4" --stage 0 --train-stage -1 \
-    --data data/${train_Set}_combined_no_sil --nnet-dir $nnet_dir \
+    --data data/${train_set}_combined_no_sil --nnet-dir $nnet_dir \
     --egs-dir $nnet_dir/egs
 fi 
 
@@ -221,7 +222,7 @@ fi
 # --- lr ---
 if [ $stage -eq 20 ]; then
   lid/run_logistic_regression_xvector.sh ${train_set}_combined $test_set exp_5
-  compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/test_mturk_1368/utt2spk)   ark:exp_5/xvectors_${test_set}/output
+  compute-wer --mode=present --text ark:<(lid/remove_dialect.pl data/${test_set}/utt2spk)   ark:exp_5/xvectors_${test_set}_200/output
 
   mkdir xvectors.${train_set}_512
   mkdir xvectors.${train_set}_200
@@ -243,3 +244,7 @@ if [ $stage -eq 20 ]; then
     ../../../src/bin/copy-vector ark:xvectors_lre07/xvector.$i.ark  ark,t:xvectors.${test_set}_plp_512/xvector.$i.txt
   done
 fi 
+
+
+../../../src/bin/copy-vector ark:exp_5/xvectors_${train_set}/xvector.1.ark  ark,t:xvectors.${train_set}_512_2/xvector.1.txt
+../../../src/bin/copy-vector ark:exp_5/xvectors_${train_set}/xvector.2.ark  ark,t:xvectors.${train_set}_512_2/xvector.2.txt

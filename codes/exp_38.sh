@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This script is for ivector training and extract ivector feature for other model training
 #-------------------------------------------------
 #train_all / test_1368
 #-------------------------------------------------

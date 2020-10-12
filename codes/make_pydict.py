@@ -3,22 +3,22 @@ import os
 def pydict(ivector_paths, outname, xvector_paths=None):
   utt2nid = {}
   utt2lang = {}
-  nid2prob = {}
-  with open('data/nid2prob.v5', 'r') as f:
-    for line in f:
-      item = line.strip().split()
-      nid = item[0]
-      summ = int(item[1])
-      nid2prob[nid] = [summ]
-      for i in range(2, 8):
-        nid2prob[nid].append(float(item[i]))
-  with open('data/utt2nid', 'r') as f:
+  # nid2prob = {}
+  # with open('data/nid2prob.v5', 'r') as f:
+  #   for line in f:
+  #     item = line.strip().split()
+  #     nid = item[0]
+  #     summ = int(item[1])
+  #     nid2prob[nid] = [summ]
+  #     for i in range(2, 8):
+  #       nid2prob[nid].append(float(item[i]))
+  with open('data/utt2nid_train', 'r') as f:
     for line in f:
       item = line.strip().split()
       utt = item[0]
       nid = item[-1]
       utt2nid[utt] = nid
-  with open('mturk/utt2lang6.v5', 'r') as f:
+  with open('data_train_itg_0903/utt2lang', 'r') as f:
     for line in f:
       item = line.strip().split()
       utt = item[0]
@@ -46,7 +46,7 @@ def pydict(ivector_paths, outname, xvector_paths=None):
               content[utt]['id'] = utt
               content[utt]['class'] = label_dict[label]
               content[utt]['nationality'] = utt2nid[utt]
-              content[utt]['nationality2prob'] = nid2prob[nid]
+              # content[utt]['nationality2prob'] = nid2prob[nid]
             except KeyError:
               continue
             content[utt][f'ivector_{length}'] = vector
@@ -71,7 +71,7 @@ def pydict(ivector_paths, outname, xvector_paths=None):
               content[utt]['id'] = utt
               content[utt]['class'] = label_dict[label]
               content[utt]['nationality'] = utt2nid[utt]
-              content[utt]['nationality2prob'] = nid2prob[nid]
+              # content[utt]['nationality2prob'] = nid2prob[nid]
             except KeyError:
               continue
             content[utt][f'xvector_{length}'] = vector
@@ -405,6 +405,84 @@ def cal_pitch(audio_path='/data/pytong/wav/itg_0603/EE1811306983070-interview-iO
   print(len(pitch_result), pitch_result[0:2])
   return pitch_result
 
+def pydict3(ivector_paths, utt_path_list, outname, xvector_paths=None):
+  utt2nid = {}
+  utt2lang = {}
+  utt2path = {}
+  utt2align = {}
+  for dataset in ['train', 'test']:
+    with open(f'pydict/tmp/data.03.{dataset}.pydict.v2', 'r') as f:
+      for line in f:
+        line = eval(line)
+        utt = line['id']
+        utt2lang[utt] = line['class']
+        utt2nid[utt] = line['nationality']
+        utt2path[utt] = line['path']
+        # utt2align[utt] = line['align_res']
+
+  assert len(utt2lang) == len(utt2nid) == len(utt2path) == len(utt2align)
+  print(len(utt2lang))
+
+  utt_list = []
+  with open(utt_path_list, 'r') as f:
+    for line in f:
+      item = line.strip().split()
+      utt = item[0]
+      utt_list.append(utt)
+
+  content = {}
+  for utt in utt_list:
+    try:
+      content[utt] = {}
+      content[utt]['id'] = utt
+      content[utt]['class'] = utt2lang[utt]
+      content[utt]['nationality'] = utt2nid[utt]
+      content[utt]['path'] = utt2path[utt]
+      # content[utt]['align_res'] = utt2align[utt]
+      # content[utt]['pitch_seq'] = cal_pitch(utt2path[utt])
+    except KeyError:
+      continue
+
+  print(len(content))
+
+  for ivector_path in ivector_paths:
+    files = os.listdir(ivector_path)
+    for file in files:
+      with open(f'{ivector_path}/{file}', 'r') as f:
+        for line in f:
+          item = line.strip().split()
+          utt = item[0]
+          vector = [float(x) for x in item[1:][1:-1]]
+          length = len(vector)
+          content[utt][f'ivector_{length}'] = vector
+
+  for xvector_path in xvector_paths:
+    files = os.listdir(xvector_path)
+    for file in files:
+      with open(f'{xvector_path}/{file}', 'r') as f:
+        for line in f:
+          item = line.strip().split()
+          utt_aug = item[0]
+          vector = [float(x) for x in item[1:][1:-1]]
+          length = len(vector)
+          if 'plp' in xvector_path:
+            # utt = utt_aug
+            utt = f"{utt_aug.split('-')[1]}-{utt_aug.split('-')[2]}"
+            content[utt][f'xvector_plp_{length}'] = vector
+          else:
+            utt = utt_aug.split('-')[1].replace('.', '-')
+            content[utt][f'xvector_{length}'] = vector
+
+  print(len(list(content.values())))
+  print(list(content.values())[2].keys())
+  with open(outname, 'w') as f:
+    f.writelines(str(line) + '\n' for line in list(content.values()))
+
+
+
+
+
+
 if __name__ == '__main__':
   # pydict2(['results/data.03.related/ivectors.test_mturk_1368_100',
   #          'results/data.03.related/ivectors.test_mturk_1368_200',
@@ -423,13 +501,13 @@ if __name__ == '__main__':
   # cal_pitch()
   # filter_align_fail()
   # select_testset_data03()
-  data_four_nn()
+  # data_four_nn()
   # correct_label()
-  # pydict(['results/exp_36/ivectors.data_mturk_train3907_100',
-  #         'results/exp_36/ivectors.data_mturk_train3907_200',
-  #         'results/exp_36/ivectors.data_mturk_train3907'],
-  #        'pydict/data.00.train.pydict',
-  #        ['results/xvectors_train.4'])
+  pydict(['all_itg_data/ivectors.data_train_itg_0903_100',
+          'all_itg_data/ivectors.data_train_itg_0903_200',
+          'all_itg_data/ivectors.data_train_itg_0903_600'],
+         'data.06.train.pydict',
+         ['all_itg_data/xvectors.data_train_itg_0903_xvector_512_2'])
   # pydict(['results/exp_36/ivectors.test_mturk_300_100',
   #         'results/exp_36/ivectors.test_mturk_300_200',
   #         'results/exp_36/ivectors.test_mturk_300'],
